@@ -1,9 +1,8 @@
 """台股上市 K 棒頂底型態搜尋器 — Streamlit UI."""
 from __future__ import annotations
 
-from datetime import timedelta
-from io import BytesIO
-import math
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -25,7 +24,7 @@ div[data-testid="stMetric"]{border:1px solid rgba(128,128,128,.20);padding:.65re
 """, unsafe_allow_html=True)
 
 EXPORT_FIELDS = {
-    'rank':'排名','code':'代號','name':'公司','pattern':'型態','stage':'階段',
+    'rank':'排名','code':'代號','name':'公司','category':'搜尋類別','pattern':'型態','stage':'階段',
     'score':'評分','signal_date':'訊號日期','age':'距今交易日',
     'close':'最新收盤價','change_pct':'當日漲跌幅(%)','volume_lots':'當日成交量(張)',
     'avg_volume_lots':'20日均量(張)','avg_turnover_100m':'20日均成交金額(億元)',
@@ -34,14 +33,14 @@ EXPORT_FIELDS = {
 
 
 def last_weekday():
-    d = today_taiwan()
-    if d.weekday() >= 5:
-        d -= timedelta(days=d.weekday()-4)
-    # after-close quote may not be available immediately; user can select today manually
-    if d == today_taiwan():
+    """Default to the latest likely published trading session."""
+    now = datetime.now(ZoneInfo("Asia/Taipei"))
+    d = now.date()
+    if d.weekday() < 5 and now.hour >= 18:
+        return d
+    d -= timedelta(days=1)
+    while d.weekday() >= 5:
         d -= timedelta(days=1)
-        while d.weekday() >= 5:
-            d -= timedelta(days=1)
     return d
 
 
@@ -101,13 +100,13 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame, eff
         st.info('這個日期與條件下，沒有符合定義的型態。可以延長訊號觀察天數或稍微放寬流動性門檻；不會以不符合的股票湊滿 25 名。')
         return
     shown = frame.rename(columns={
-        'rank':'排名','code':'代號','name':'股票名稱','pattern':'型態','stage':'階段',
+        'rank':'排名','code':'代號','name':'股票名稱','category':'搜尋類別','pattern':'型態','stage':'階段',
         'score':'分數','signal_date':'訊號日期','age':'距今天數(交易日)',
         'close':'收盤價','change_pct':'漲跌幅 %',
         'volume_lots':'今日量(張)','avg_volume_lots':'20日均量(張)',
         'avg_turnover_100m':'20日均成交額(億)','volume_ratio':'量比'
     })
-    st.dataframe(shown[['排名','代號','股票名稱','型態','階段','分數','訊號日期',
+    st.dataframe(shown[['排名','代號','股票名稱','搜尋類別','型態','階段','分數','訊號日期',
                         '收盤價','漲跌幅 %','今日量(張)','20日均量(張)',
                         '20日均成交額(億)','量比']],
         hide_index=True,use_container_width=True,height=min(35*len(frame)+44,900),
@@ -135,7 +134,7 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame, eff
 
 
 st.title('📊 台股 K 棒頂底型態搜尋器')
-st.caption('台灣證券交易所上市普通股｜官方盤後日 K｜每天手動搜尋｜頂部與底部各 Top 25')
+st.caption('僅上市普通股｜官方日 K｜K 棒反轉優先｜W／M、均線訊號可自行勾選｜頂底各 Top 25')
 with st.sidebar:
     st.header('🔎 搜尋條件')
     query_date = st.date_input('查詢日期（手動）',value=last_weekday(),
@@ -146,6 +145,14 @@ with st.sidebar:
                               value=1000,step=500)
     min_money = st.number_input('20 日平均成交金額 ≥（億元）',min_value=0.0,max_value=500.0,
                                 value=1.0,step=.5,format='%.1f')
+    st.markdown('**搜尋目標（可複選）**')
+    targets = st.multiselect('搜尋類型（以 K 棒反轉為主）',
+        ['K 棒反轉','W 底／M 頭','均線突破／跌破'],default=['K 棒反轉'])
+    if '均線突破／跌破' in targets:
+        ma_windows = st.multiselect('均線週期', [5,10,20,60],
+                                    default=[20,60],format_func=lambda n:f'MA{n}')
+    else:
+        ma_windows = [20,60]
     min_price = st.number_input('最低收盤股價（元）',min_value=0.0,max_value=3000.0,
                                 value=10.0,step=5.0,format='%.1f')
     signal_days = st.select_slider('最近幾個交易日出現訊號',options=[1,2,3,4,5],value=3)
@@ -153,7 +160,8 @@ with st.sidebar:
         history_days = st.slider('歷史回溯天數（曆日）',120,250,165,5)
         st.caption('預設約包含 110 個交易日，足以計算 MA60 與中短期 W/M 型態。第一次下載較久，後續沿用快取。')
     st.divider()
-    run = st.button('🔍 開始手動搜尋',type='primary',use_container_width=True)
+    run = st.button('🔍 開始手動搜尋',type='primary',use_container_width=True,
+                    disabled=not targets or ('均線突破／跌破' in targets and not ma_windows))
     st.caption('資料來源：TWSE 官方。僅上市，不含上櫃、ETF、權證。')
 
 if run:
@@ -171,12 +179,14 @@ if run:
         bar.progress(1.0,text='下載完成，正在分析 K 棒頂底型態…')
         bottom,top,diag,covered = screen(info['data'],companies,info['effective_date'],
             min_vol_lots=min_vol,min_turnover_100m=min_money,
-            min_price=min_price,signal_days=signal_days,top_n=25)
+            min_price=min_price,signal_days=signal_days,top_n=25,
+            enabled_categories=targets,ma_windows=ma_windows)
         st.session_state['results'] = {
             'bottom':bottom,'top':top,'diag':diag,'info':{k:v for k,v in info.items() if k!='data'},
             'data':covered,
             'criteria':{'date':str(query_date),'min_vol':min_vol,'min_money':min_money,
-                        'min_price':min_price,'signal_days':signal_days}
+                        'min_price':min_price,'signal_days':signal_days,
+                        'targets':list(targets),'ma_windows':list(ma_windows)}
         }
         details.empty()
         bar.empty()
