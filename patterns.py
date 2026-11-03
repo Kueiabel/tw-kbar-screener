@@ -15,6 +15,7 @@ import pandas as pd
 @dataclass
 class Signal:
     side: str
+    category: str
     code: str
     name: str
     pattern: str
@@ -83,7 +84,7 @@ def _pair_pattern(o, h, l, c, side: str):
     return []
 
 
-def _patterns_at(df: pd.DataFrame):
+def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windows=(20,60)):
     """Pattern tuples (side,name,base_score,reason,stage) for the FINAL bar."""
     if len(df) < 32:
         return []
@@ -96,22 +97,41 @@ def _patterns_at(df: pd.DataFrame):
     upper = hi-max(op,cl)
     r20_low = float(np.min(l[-21:-1]))
     r20_high = float(np.max(h[-21:-1]))
-    prior15 = c[-16:-1]
     # Context: in lower/upper 40% of the 30-session trading range, or preceding trend.
     r30_low, r30_high = float(np.min(l[-31:-1])), float(np.max(h[-31:-1]))
     pos = (cl-r30_low) / max(1e-8, r30_high-r30_low)
-    prior_down = c[-2] < c[-9] * .975
-    prior_up = c[-2] > c[-9] * 1.025
-    near_bottom = lo <= r20_low*1.035 or pos <= .4 or prior_down
-    near_top = hi >= r20_high*.965 or pos >= .6 or prior_up
+    prior_down = c[-2] < c[-9] * .988
+    prior_up = c[-2] > c[-9] * 1.012
+    # Do not call a tall upper shadow a top in the middle of an obvious fall,
+    # or a long lower shadow a bottom amid an established rise.
+    near_bottom = prior_down or ((lo <= r20_low*1.035 or pos <= .33) and not prior_up)
+    near_top = prior_up or ((hi >= r20_high*.965 or pos >= .67) and not prior_down)
     res = []
-    def add(side, label, score, reason, stage="已確認"):
-        res.append((side,label,score,reason,stage))
+    allowed = set(enabled_categories)
+    def add(side, label, score, reason, stage="已確認", category="K 棒反轉"):
+        if category in allowed:
+            res.append((side, label, score, reason, stage, category))
     # One-bar candlestick patterns with context; a tiny doji gets minimal body denom.
     if lower >= 2*max(body,span*.08) and lower >= span*.52 and upper <= span*.23 and cl >= lo+span*.60 and near_bottom:
         add("bottom", "錘子線／長下影", 37, "下影線明顯長於實體，收盤收回區間上半部")
     if upper >= 2*max(body,span*.08) and upper >= span*.52 and lower <= span*.23 and cl <= lo+span*.4 and near_top:
         add("top", "流星線／長上影", 37, "上影線明顯長於實體，收盤回到區間下半部")
+    # Candlestick families shown in the reference examples; neutral/ambiguous
+    # shapes require preceding trend and are labelled early warnings.
+    is_doji = body <= .12*span
+    if is_doji and lower >= .65*span and upper <= .15*span and near_bottom and prior_down:
+        add("bottom", "蜻蜓十字星", 42, "跌勢末端的長下影十字星；仍需後續紅 K 確認", "提前預警")
+    if is_doji and upper >= .65*span and lower <= .15*span and near_top and prior_up:
+        add("top", "墓碑十字星", 42, "漲勢末端的長上影十字星；仍需後續黑 K 確認", "提前預警")
+    if is_doji and lower >= .20*span and upper >= .20*span:
+        if near_bottom and prior_down:
+            add("bottom", "多頭十字星", 31, "下跌後出現多空猶豫十字星；尚未確認止跌", "提前預警")
+        if near_top and prior_up:
+            add("top", "空頭十字星", 31, "上漲後出現多空猶豫十字星；尚未確認見頂", "提前預警")
+    if upper >= 2*max(body, span*.08) and upper >= span*.52 and lower <= span*.23 and near_bottom and prior_down:
+        add("bottom", "倒錘子線", 34, "下跌後出現長上影小實體，待後續 K 棒確認", "提前預警")
+    if lower >= 2*max(body, span*.08) and lower >= span*.52 and upper <= span*.23 and near_top and prior_up:
+        add("top", "上吊線", 34, "上漲後出現長下影小實體，待後續 K 棒確認", "提前預警")
     # Engulfing (body engulfment; previous candle opposite and real body material).
     if c[-2] < o[-2] and cl > op and op <= c[-2]*1.002 and cl >= o[-2]*.998 and near_bottom:
         add("bottom", "多頭吞噬", 43, "紅 K 實體涵蓋前一根黑 K 實體")
@@ -128,14 +148,26 @@ def _patterns_at(df: pd.DataFrame):
         add("bottom", "跌破前低後收回", 45, f"盤中跌破近 20 日低點 {r20_low:.2f}，收盤站回")
     if hi > r20_high*1.008 and cl < r20_high*.996 and cl < op:
         add("top", "突破前高後跌回", 45, f"盤中突破近 20 日高點 {r20_high:.2f}，收盤跌回")
-    # Breakout/breakdown may be continuation, keep labelled as such (not guaranteed reversal).
-    if cl > r20_high*1.006 and c[-2] <= float(np.max(h[-22:-2]))*1.006:
-        add("bottom", "20 日區間向上突破", 32, f"收盤突破前 20 日高點 {r20_high:.2f}；屬轉強型態，不保證是底部")
-    if cl < r20_low*.994 and c[-2] >= float(np.min(l[-22:-2]))*.994:
-        add("top", "20 日區間向下跌破", 32, f"收盤跌破前 20 日低點 {r20_low:.2f}；屬轉弱型態，不保證是頂部")
-    for side in ("bottom","top"):
-        for label, score, reason, stage in _pair_pattern(o,h,l,c,side):
-            add(side,label,score,reason,stage)
+    # Optional, separately selectable patterns (off by default).
+    if "W 底／M 頭" in allowed:
+        for side in ("bottom", "top"):
+            for label, score, reason, stage in _pair_pattern(o,h,l,c,side):
+                add(side, label, score, reason, stage, "W 底／M 頭")
+    if "均線突破／跌破" in allowed:
+        for period in sorted(set(int(x) for x in ma_windows if int(x) in (5, 10, 20, 60))):
+            if len(c) < period + 2:
+                continue
+            ma_now = float(np.mean(c[-period:]))
+            ma_prev = float(np.mean(c[-period-1:-1]))
+            # Current close confirms the cross; prior close was on the other side.
+            if c[-2] <= ma_prev*1.001 and cl > ma_now*1.003 and cl > op:
+                add("bottom", f"站上 MA{period}", 30 if period < 20 else 36,
+                    f"收盤價由均線下方站上 MA{period} ({ma_now:.2f})；不代表一定築底",
+                    category="均線突破／跌破")
+            if c[-2] >= ma_prev*.999 and cl < ma_now*.997 and cl < op:
+                add("top", f"跌破 MA{period}", 30 if period < 20 else 36,
+                    f"收盤價由均線上方跌破 MA{period} ({ma_now:.2f})；不代表一定見頂",
+                    category="均線突破／跌破")
     # Confirmed swing: pivot is two bars ago; signal date = confirmation day.
     if len(df) >= 35:
         test_l = l[-3]
@@ -178,13 +210,16 @@ def _score(df: pd.DataFrame, i: int, side: str, base: int, age: int):
 def screen(data: pd.DataFrame, companies: dict[str, str],
            as_of: str, min_vol_lots: int = 1000, min_turnover_100m: float = 1.0,
            min_price: float = 10.0, signal_days: int = 3,
-           top_n: int = 25):
+           top_n: int = 25, enabled_categories=("K 棒反轉",),
+           ma_windows=(20,60)):
     """Returns (bottom dataframe, top dataframe, diagnostics, selected price dataframe).
 
     No substitution of unqualified stocks to reach 25; displays fewer if necessary.
     """
     if data.empty:
         return pd.DataFrame(), pd.DataFrame(), {"covered": 0, "liquid": 0}, data
+    if not enabled_categories:
+        raise ValueError("請至少選取一種搜尋目標")
     data = data[data.code.isin(companies.keys()) & (data.date <= as_of)].copy()
     data = data.sort_values(["code","date"])
     result = {"bottom":[], "top":[]}
@@ -204,13 +239,17 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
         for age in range(min(signal_days,len(grp)-64)):
             i = len(grp) - 1 - age
             partial = grp.iloc[:i+1]
-            for side, name, base, reason, stage in _patterns_at(partial):
+            for side, name, base, reason, stage, category in _patterns_at(
+                    partial, enabled_categories=enabled_categories, ma_windows=ma_windows):
                 code_signals += 1
                 score, ratio = _score(grp,i,side,base,age)
+                # K-bars are the main objective even when optional scans are enabled.
+                if category == "K 棒反轉":
+                    score = min(100, score + 12)
                 prev_close = float(grp.close.iloc[-2]) if len(grp) > 1 else float(grp.close.iloc[-1])
                 pct = (grp.close.iloc[-1] / prev_close-1)*100 if prev_close else 0
                 signal = Signal(
-                    side=side, code=code, name=companies.get(code, grp.name.iloc[-1]),
+                    side=side, category=category, code=code, name=companies.get(code, grp['name'].iloc[-1]),
                     pattern=name, signal_date=str(grp.date.iloc[i]), age=age,
                     score=score, close=round(float(grp.close.iloc[-1]),2),
                     change_pct=round(pct,2), volume_lots=int(grp.shares.iloc[-1]//1000),
@@ -232,4 +271,10 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
         final.append(frame)
     diag = {"covered": covered, "liquid": liquid, "matched":with_patterns, "listed":len(companies),
             "bottom_candidates":len(result['bottom']),"top_candidates":len(result['top'])}
-    return final[0], final[1], diag, data
+    # The UI needs price bars only for the displayed Top 25 charts.
+    selected_codes = set()
+    for frame in final:
+        if not frame.empty:
+            selected_codes.update(frame['code'].astype(str).tolist())
+    chart_data = data[data.code.isin(selected_codes)].copy()
+    return final[0], final[1], diag, chart_data
