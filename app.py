@@ -71,6 +71,39 @@ def show_online_count():
     st.caption("最近 90 秒有活動的瀏覽工作階段估算，不收集姓名或 IP。")
 
 
+# Sponsor content can be configured once a real advertiser has been approved.
+# Empty URL/image keeps a clearly labelled sponsorship placeholder.
+SPONSOR = {
+    "name": "廣告合作招募中",
+    "message": "台股 K 棒搜尋器｜歡迎洽詢贊助合作",
+    "image_url": "",
+    "landing_url": "",
+}
+AD_SECONDS = 40
+
+
+@st.fragment(run_every="1s")
+def search_ad_countdown():
+    remaining = max(0, int(__import__("math").ceil(
+        st.session_state["search_ad_deadline"] - monotonic())))
+    if remaining <= 0:
+        st.session_state.pop("search_ad_deadline", None)
+        st.session_state["pending_search"] = True
+        st.rerun(scope="app")
+    st.caption("廣告 · 贊助內容")
+    with st.container(border=True):
+        st.subheader(SPONSOR["name"])
+        if SPONSOR["image_url"]:
+            st.image(SPONSOR["image_url"], use_container_width=True)
+        st.write(SPONSOR["message"])
+        if SPONSOR["landing_url"]:
+            st.link_button("了解贊助內容", SPONSOR["landing_url"],
+                           use_container_width=True)
+    st.progress((AD_SECONDS - remaining) / AD_SECONDS,
+                text=f"廣告展示剩餘 {remaining} 秒")
+    st.caption("倒數結束後會自動開始搜尋，請保持網頁開啟。")
+
+
 EXPORT_FIELDS = {
     'rank':'排名','code':'代號','name':'公司','industry':'產業類別','category':'搜尋類別','pattern':'型態','stage':'階段',
     'score':'評分','signal_date':'訊號日期','age':'距今交易日',
@@ -189,6 +222,12 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame, eff
     st.caption('標記位置為型態「辨識／確認」日期，不一定是實際高低點當天。紅 K 為上漲、綠 K 為下跌。52 日均線在資料不足時不顯示。')
 
 
+# Replace the search form with a sponsor screen during the 40-second slot.
+if "search_ad_deadline" in st.session_state:
+    st.title('📊 台股 K 棒搜尋器')
+    search_ad_countdown()
+    st.stop()
+
 st.title('📊 台股 K 棒搜尋器')
 show_online_count()
 st.caption('台灣上市普通股｜K 棒反轉＋MA5／10／20／52 固定搜尋｜頂底各 Top 25')
@@ -223,9 +262,26 @@ with st.container(border=True):
             options=[1,2,3,4,5],value=3)
         history_days = st.slider('歷史回溯天數',120,250,165,5)
     run = st.button('🔍 開始搜尋上市股票',type='primary',use_container_width=True)
-    st.caption('選擇休市日會採用前一個有行情的交易日；首次下載歷史資料需較久。')
+    st.caption('每次搜尋前展示 40 秒贊助版位；倒數完畢自動開始搜尋。')
 
 if run:
+    # Save immutable inputs before the form is temporarily hidden.
+    st.session_state["queued_criteria"] = {
+        "query_date": query_date, "min_vol": min_vol,
+        "min_money": min_money, "min_price": min_price,
+        "targets": list(targets), "ma_windows": list(ma_windows),
+        "signal_days": signal_days, "history_days": history_days,
+    }
+    st.session_state["search_ad_deadline"] = monotonic() + AD_SECONDS
+    st.rerun()
+
+run = st.session_state.pop("pending_search", False)
+if run:
+    opts = st.session_state.pop("queued_criteria")
+    query_date = opts["query_date"]
+    min_vol, min_money, min_price = opts["min_vol"], opts["min_money"], opts["min_price"]
+    targets, ma_windows = opts["targets"], opts["ma_windows"]
+    signal_days, history_days = opts["signal_days"], opts["history_days"]
     bar = st.progress(0,text='準備搜尋…')
     details = st.empty()
     db = None
