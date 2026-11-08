@@ -143,10 +143,10 @@ def render_waiting_ad():
         finally:
             st.session_state.pop("scan_future", None)
         st.rerun(scope="app")
-    st.subheader("看個廣告稍後一下")
-    st.caption("正在搜尋股票，贊助內容同步展示；完成即自動顯示結果。")
+    st.subheader("看個廣告，稍後一下，正在搜尋")
+    st.caption("正在比對台灣上市股票行情，完成後立即顯示搜尋結果。")
     with st.container(border=True):
-        st.caption("廣告 · 贊助版位")
+        st.caption("品牌贊助展示區 · 此處不載入 Google AdSense")
         if SPONSOR["image_url"]:
             st.image(SPONSOR["image_url"], use_container_width=True)
         st.markdown("### " + SPONSOR["name"])
@@ -154,7 +154,7 @@ def render_waiting_ad():
         if SPONSOR["landing_url"]:
             st.link_button("了解贊助內容", SPONSOR["landing_url"],
                            use_container_width=True)
-    st.info("⏳ 正在取得盤後行情並比對技術型態…")
+    st.info("⏳ 正在取得盤後行情並比對技術型態… 無須點擊廣告。")
     st.caption("首次下載歷史資料可能較久，請保持網頁開啟。")
 
 
@@ -346,6 +346,12 @@ else:
     c.metric('底部榜單',f"{len(r['bottom'])} / 25 檔")
     d.metric('頂部榜單',f"{len(r['top'])} / 25 檔")
     st.caption(f"本次新下載／檢查交易日 {r['info']['downloaded_days']} 天。產業類別採證交所上市公司官方分類；未分類表示官方欄位缺漏或尚未取得。排行分數並非勝率。")
+    # AdSense belongs alongside substantive results, not on a loading-only
+    # screen. Do not inject unapproved ad tags or fake impression counts.
+    with st.container(border=True):
+        st.caption("廣告 · Google AdSense 預定版位")
+        st.write("網站核准並完成廣告程式碼安裝後，將於此處展示廣告。")
+        st.caption("目前尚未啟用 Google 廣告，也不會產生廣告收入。")
     tabs=st.tabs(['🟢 底部型態 Top 25','🔴 頂部型態 Top 25','ℹ️ 評分規則與注意事項'])
     with tabs[0]:
         render_rankings(r['bottom'],'bottom',r['data'],effective_date)
