@@ -120,15 +120,20 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame, eff
         'volume_lots':'今日量(張)','avg_volume_lots':'20日均量(張)',
         'avg_turnover_100m':'20日均成交額(億)','volume_ratio':'量比'
     })
-    st.caption('榜單可左右滑動查看更多欄位；下方可逐檔查看 K 線。')
-    st.dataframe(shown[['排名','代號','股票名稱','產業類別','搜尋類別','型態','階段','分數','訊號日期',
-                        '收盤價','漲跌幅 %','今日量(張)','20日均量(張)',
-                        '20日均成交額(億)','量比']],
+    # Keep ranking readable on a narrow screen. Extra fields remain available
+    # in the detailed expandable table and the CSV download.
+    st.dataframe(shown[['排名','代號','股票名稱','產業類別','型態','分數','收盤價']],
         hide_index=True,use_container_width=True,height=min(35*len(frame)+44,900),
-        column_config={'分數':st.column_config.ProgressColumn('分數',min_value=0,max_value=100,format='%d'),
-                       '漲跌幅 %':st.column_config.NumberColumn('漲跌幅 %',format='%.2f'),
-                       '20日均成交額(億)':st.column_config.NumberColumn('20日均成交額(億)',format='%.2f'),
-                       '量比':st.column_config.NumberColumn('量比',format='%.2f')})
+        column_config={'分數':st.column_config.ProgressColumn(
+            '分數',min_value=0,max_value=100,format='%d'),
+            '收盤價':st.column_config.NumberColumn('收盤價',format='%.2f')})
+    with st.expander('展開完整榜單（成交量、成交金額、日期等）'):
+        st.dataframe(shown[['排名','代號','股票名稱','產業類別',
+            '搜尋類別','型態','階段','分數','訊號日期','收盤價',
+            '漲跌幅 %','今日量(張)','20日均量(張)','20日均成交額(億)','量比']],
+            hide_index=True,use_container_width=True,
+            column_config={'漲跌幅 %':st.column_config.NumberColumn(
+                '漲跌幅 %',format='%.2f')})
     st.download_button('⬇ 下載此榜單 CSV（Excel 可開啟）',data=to_csv(frame),
         file_name=f'TWSE_{side}_{effective_date}.csv',mime='text/csv',key=f'download_{side}')
     st.divider()
