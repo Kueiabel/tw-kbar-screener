@@ -84,7 +84,7 @@ def _pair_pattern(o, h, l, c, side: str):
     return []
 
 
-def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windows=(20,60)):
+def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windows=(20,52)):
     """Pattern tuples (side,name,base_score,reason,stage) for the FINAL bar."""
     if len(df) < 32:
         return []
@@ -154,7 +154,7 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
             for label, score, reason, stage in _pair_pattern(o,h,l,c,side):
                 add(side, label, score, reason, stage, "W 底／M 頭")
     if "均線突破／跌破" in allowed:
-        for period in sorted(set(int(x) for x in ma_windows if int(x) in (5, 10, 20, 60))):
+        for period in sorted(set(int(x) for x in ma_windows if int(x) in (5, 10, 20, 52))):
             if len(c) < period + 2:
                 continue
             ma_now = float(np.mean(c[-period:]))
@@ -211,7 +211,7 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
            as_of: str, min_vol_lots: int = 1000, min_turnover_100m: float = 1.0,
            min_price: float = 10.0, signal_days: int = 3,
            top_n: int = 25, enabled_categories=("K 棒反轉",),
-           ma_windows=(20,60)):
+           ma_windows=(20,52)):
     """Returns (bottom dataframe, top dataframe, diagnostics, selected price dataframe).
 
     No substitution of unqualified stocks to reach 25; displays fewer if necessary.
