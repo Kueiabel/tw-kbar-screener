@@ -20,32 +20,54 @@ from twse_source import ensure_history, load_companies, open_db, today_taiwan
 st.set_page_config(page_title="台股 K 棒頂底搜尋器", page_icon="📊", layout="wide", initial_sidebar_state="collapsed")
 st.markdown("""
 <style>
-html, body, .stApp, [data-testid="stAppViewContainer"] {
-  font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Heiti TC","Noto Sans TC",sans-serif;
+/* Soft Apple-style Traditional Chinese typography, no external font downloads. */
+html, body, .stApp, [data-testid="stAppViewContainer"],
+[data-testid="stMarkdownContainer"], button, input, textarea {
+  font-family:"PingFang TC","SF Pro Text",-apple-system,BlinkMacSystemFont,
+              "Noto Sans TC","Microsoft JhengHei",sans-serif !important;
   -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
 }
 .block-container{padding-top:1.15rem;max-width:1100px;padding-bottom:3rem;}
-h1{font-size:2rem;line-height:1.3;font-weight:700;}
-[data-testid="stWidgetLabel"] p{font-weight:550;}
-div[data-testid="stAlert"]{border-radius:.75rem;}
-h1,h2,h3{letter-spacing:0;overflow-wrap:anywhere;}
-div[data-testid="stMetric"]{border:1px solid rgba(128,128,128,.20);padding:.55rem .7rem;border-radius:.65rem;}
+h1,h2,h3{overflow-wrap:anywhere;letter-spacing:.018em !important;line-height:1.42 !important;}
+h1{font-size:1.95rem;font-weight:610 !important;}
+h2{font-weight:590 !important;}
+h3{font-weight:570 !important;}
+p,li{line-height:1.68;letter-spacing:.012em;}
+[data-testid="stCaptionContainer"] p{line-height:1.62;color:inherit;}
+[data-testid="stWidgetLabel"] p{font-weight:480 !important;letter-spacing:.012em;}
+.stButton>button, [data-testid="stBaseButton-primary"]{
+  border-radius:14px !important;
+  font-weight:560 !important;
+  letter-spacing:.025em;
+  min-height:2.85rem;
+}
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input,
+[data-testid="stDateInput"] input {
+  border-radius:11px;
+  font-weight:440;
+}
+div[data-testid="stAlert"]{border-radius:14px;}
+div[data-testid="stMetric"]{border:1px solid rgba(128,128,128,.16);padding:.65rem .8rem;border-radius:14px;}
+[data-testid="stMetricLabel"]{font-weight:460;}
+[data-testid="stMetricValue"]{font-weight:590;}
 [data-testid="stDataFrame"]{max-width:100%;overflow:hidden;}
+[data-testid="stTabs"] button{font-weight:520;letter-spacing:.008em;}
 @media(max-width:640px){
-  .block-container{padding:1rem .8rem 5rem !important;max-width:100% !important;}
-  h1{font-size:clamp(1.35rem,5.7vw,1.8rem) !important;line-height:1.3 !important;}
-  h2{font-size:1.25rem !important;}
-  h3{font-size:1.1rem !important;}
-  p,li{overflow-wrap:anywhere;}
-  [data-testid="stMetricValue"]{font-size:1.25rem !important;}
-  [data-testid="stMetricLabel"]{font-size:.78rem !important;}
+  .block-container{padding:1rem .85rem 5rem !important;max-width:100% !important;}
+  h1{font-size:clamp(1.35rem,5.6vw,1.78rem) !important;line-height:1.39 !important;}
+  h2{font-size:1.23rem !important;}
+  h3{font-size:1.08rem !important;}
+  p,li{overflow-wrap:anywhere;line-height:1.63;}
+  [data-testid="stMetricValue"]{font-size:1.24rem !important;}
+  [data-testid="stMetricLabel"]{font-size:.8rem !important;}
   [data-testid="stHorizontalBlock"]{gap:.65rem;}
-  [data-testid="stVerticalBlock"]{gap:.55rem;}
+  [data-testid="stVerticalBlock"]{gap:.62rem;}
   [data-testid="stPlotlyChart"]{max-width:100%;overflow:hidden;}
   [data-testid="stTabs"] button{font-size:.82rem;white-space:nowrap;}
-  .stButton>button{min-height:2.85rem;border-radius:.65rem;}
   [data-testid="stWidgetLabel"] p{font-size:.9rem;}
-  div[data-testid="stMetric"]{padding:.52rem .65rem;}
+  div[data-testid="stMetric"]{padding:.54rem .68rem;}
 }
 </style>
 """, unsafe_allow_html=True)
