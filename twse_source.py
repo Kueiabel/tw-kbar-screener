@@ -27,6 +27,29 @@ HEADERS = {
     "Referer": "https://www.twse.com.tw/",
 }
 COLUMNS = ("date", "code", "name", "open", "high", "low", "close", "shares", "turnover")
+# TWSE official industry classifications, not self-inferred business categories.
+INDUSTRY_NAMES = {
+    "01":"水泥工業", "02":"食品工業", "03":"塑膠工業", "04":"紡織纖維",
+    "05":"電機機械", "06":"電器電纜", "08":"玻璃陶瓷", "09":"造紙工業",
+    "10":"鋼鐵工業", "11":"橡膠工業", "12":"汽車工業", "14":"建材營造",
+    "15":"航運業", "16":"觀光餐旅", "17":"金融保險", "18":"貿易百貨",
+    "19":"綜合", "20":"其他", "21":"化學工業", "22":"生技醫療業",
+    "23":"油電燃氣業", "24":"半導體業", "25":"電腦及週邊設備業",
+    "26":"光電業", "27":"通信網路業", "28":"電子零組件業",
+    "29":"電子通路業", "30":"資訊服務業", "31":"其他電子業",
+    "32":"文化創意業", "33":"農業科技業", "35":"綠能環保",
+    "36":"數位雲端", "37":"運動休閒", "38":"居家生活",
+}
+def industry_name(raw) -> str:
+    """Decode industry names/codes; unknown codes stay clearly unidentified."""
+    value = str(raw or "").strip()
+    if not value:
+        return "未分類"
+    if value in INDUSTRY_NAMES.values():
+        return value
+    code = value.zfill(2) if value.isdigit() else value
+    return INDUSTRY_NAMES.get(code, "未分類")
+
 
 
 def today_taiwan() -> date:
@@ -46,7 +69,11 @@ def open_db(path: Path = DB_PATH) -> sqlite3.Connection:
     db.execute("""CREATE TABLE IF NOT EXISTS fetched_days(
         date TEXT PRIMARY KEY, status TEXT NOT NULL, fetched_at TEXT NOT NULL)""")
     db.execute("""CREATE TABLE IF NOT EXISTS listed_companies(
-        code TEXT PRIMARY KEY, name TEXT NOT NULL)""")
+        code TEXT PRIMARY KEY, name TEXT NOT NULL, industry TEXT NOT NULL DEFAULT '未分類')""")
+    # Upgrade existing cloud/local databases without deleting price history.
+    cols = {row[1] for row in db.execute("PRAGMA table_info(listed_companies)")}
+    if "industry" not in cols:
+        db.execute("ALTER TABLE listed_companies ADD COLUMN industry TEXT NOT NULL DEFAULT '未分類'")
     db.execute("CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY, value TEXT)")
     db.commit()
     return db
@@ -134,7 +161,10 @@ def load_companies(db: sqlite3.Connection, session: requests.Session) -> dict[st
     now = datetime.now(TZ)
     stamp = db.execute("SELECT value FROM metadata WHERE key='companies_fetched_at'").fetchone()
     existing = dict(db.execute("SELECT code,name FROM listed_companies"))
-    if existing and stamp:
+    missing_industry = db.execute(
+        "SELECT COUNT(*) FROM listed_companies WHERE industry='未分類' OR industry=''"
+    ).fetchone()[0]
+    if existing and stamp and missing_industry < max(10, len(existing) // 20):
         try:
             if (now - datetime.fromisoformat(stamp[0])).total_seconds() < 7 * 86400:
                 return existing
@@ -145,15 +175,17 @@ def load_companies(db: sqlite3.Connection, session: requests.Session) -> dict[st
         if not isinstance(obj, list):
             raise ValueError("上市公司名冊不是 JSON 陣列")
         companies = {}
+        details = []
         for item in obj:
             code = str(item.get("公司代號", "")).strip()
             name = str(item.get("公司簡稱") or item.get("公司名稱") or "").strip()
             if re.fullmatch(r"[1-9][0-9]{3}", code) and name:
                 companies[code] = name
+                details.append((code, name, industry_name(item.get("產業別"))))
         if len(companies) < 800:
             raise ValueError(f"上市公司名冊只有 {len(companies)} 檔")
         with db:
-            db.executemany("INSERT OR REPLACE INTO listed_companies(code,name) VALUES(?,?)", companies.items())
+            db.executemany("INSERT OR REPLACE INTO listed_companies(code,name,industry) VALUES(?,?,?)", details)
             db.execute("INSERT OR REPLACE INTO metadata(key,value) VALUES(?,?)", ("companies_fetched_at", now.isoformat()))
         return companies
     except Exception as e:
