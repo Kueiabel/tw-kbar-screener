@@ -305,7 +305,7 @@ if "scan_future" in st.session_state:
 
 st.title('📊 台股 K 棒搜尋器')
 show_online_count()
-st.caption('台灣上市普通股｜K 棒反轉＋MA5／10／20／52 固定搜尋｜頂底各 Top 25')
+st.caption('台灣上市普通股｜可選搜尋條件：K 棒反轉、均線突破／跌破、W 底／M 頭｜頂底各 Top 25')
 if "scan_error" in st.session_state:
     st.error("搜尋中斷：" + st.session_state.pop("scan_error"))
 
@@ -328,17 +328,33 @@ with st.container(border=True):
     with c_price:
         min_price = st.number_input('最低股價（元）',
             min_value=0.0, max_value=3000.0, value=10.0, step=5.0, format='%.1f')
-    st.caption('固定搜尋：K 棒反轉＋均線突破／跌破（MA5、MA10、MA20、MA52）')
-    include_wm = st.checkbox('另外搜尋 W 底／M 頭', value=False)
-    targets = ['K 棒反轉', '均線突破／跌破']
+    st.markdown('**選擇搜尋型態（可複選）**')
+    select_kbar = st.checkbox('K 棒頂部／底部反轉', value=True)
+    select_ma = st.checkbox('均線突破／跌破', value=True)
+    include_wm = st.checkbox('W 底／M 頭', value=False)
+    targets = []
+    if select_kbar:
+        targets.append('K 棒反轉')
+    if select_ma:
+        targets.append('均線突破／跌破')
     if include_wm:
         targets.append('W 底／M 頭')
     ma_windows = [5, 10, 20, 52]
+    if select_ma:
+        selected_ma = st.multiselect('均線週期（可複選）', options=ma_windows,
+            default=ma_windows, format_func=lambda n: f'MA{n}')
+        ma_windows = selected_ma
+        if not ma_windows:
+            st.warning('使用均線搜尋時，請至少選擇一個 MA 週期。')
     with st.expander('更多設定：訊號天數'):
         signal_days = st.select_slider('最近幾個交易日出現訊號',
             options=[1,2,3,4,5],value=3)
         history_days = st.slider('歷史回溯天數',120,250,165,5)
-    run = st.button('🔍 開始搜尋上市股票',type='primary',use_container_width=True)
+    valid_targets = bool(targets) and (not select_ma or bool(ma_windows))
+    if not targets:
+        st.warning('請至少勾選一種搜尋型態。')
+    run = st.button('🔍 開始搜尋上市股票',type='primary',
+        use_container_width=True, disabled=not valid_targets)
     st.caption('搜尋時同步顯示贊助內容，行情分析完成即呈現結果。')
 
 if run:
