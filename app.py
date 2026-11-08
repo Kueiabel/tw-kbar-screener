@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from threading import Lock
 from time import monotonic
 from uuid import uuid4
+from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -71,37 +72,90 @@ def show_online_count():
     st.caption("最近 90 秒有活動的瀏覽工作階段估算，不收集姓名或 IP。")
 
 
-# Sponsor content can be configured once a real advertiser has been approved.
-# Empty URL/image keeps a clearly labelled sponsorship placeholder.
+# Sponsor details must be entered only after a real partnership is approved.
 SPONSOR = {
     "name": "廣告合作招募中",
-    "message": "台股 K 棒搜尋器｜歡迎洽詢贊助合作",
+    "message": "台股 K 棒搜尋器｜此版位提供合法品牌合作洽詢",
     "image_url": "",
     "landing_url": "",
 }
-AD_SECONDS = 40
 
 
-@st.fragment(run_every="1s")
-def search_ad_countdown():
-    remaining = max(0, int(__import__("math").ceil(
-        st.session_state["search_ad_deadline"] - monotonic())))
-    if remaining <= 0:
-        st.session_state.pop("search_ad_deadline", None)
-        st.session_state["pending_search"] = True
+@st.cache_resource(show_spinner=False)
+def _search_pool():
+    # SQLite daily caches are shared inside each Streamlit process.
+    return {"executor": ThreadPoolExecutor(max_workers=2), "lock": Lock()}
+
+
+def run_stock_scan(opts):
+    """Run I/O and computation off the UI thread; no Streamlit calls here."""
+    pool = _search_pool()
+    with pool["lock"]:
+        db = None
+        try:
+            db = open_db()
+            with requests.Session() as session:
+                companies = load_companies(db, session)
+                industry_map = dict(db.execute(
+                    "SELECT code,industry FROM listed_companies"))
+                info = ensure_history(
+                    db, session, opts["query_date"], opts["history_days"],
+                    progress=None, throttle=.85)
+            bottom, top, diag, covered = screen(
+                info["data"], companies, info["effective_date"],
+                min_vol_lots=opts["min_vol"],
+                min_turnover_100m=opts["min_money"],
+                min_price=opts["min_price"], signal_days=opts["signal_days"],
+                top_n=25, enabled_categories=opts["targets"],
+                ma_windows=opts["ma_windows"])
+            for ranking in (bottom, top):
+                if not ranking.empty:
+                    ranking["industry"] = ranking["code"].map(
+                        industry_map).fillna("未分類")
+            return {
+                "bottom": bottom, "top": top, "diag": diag,
+                "info": {k:v for k,v in info.items() if k != "data"},
+                "data": covered,
+                "criteria": {
+                    "date": str(opts["query_date"]),
+                    "min_vol": opts["min_vol"],
+                    "min_money": opts["min_money"],
+                    "min_price": opts["min_price"],
+                    "signal_days": opts["signal_days"],
+                    "targets": list(opts["targets"]),
+                    "ma_windows": list(opts["ma_windows"]),
+                },
+            }
+        finally:
+            if db is not None:
+                db.close()
+
+
+@st.fragment(run_every="2s")
+def render_waiting_ad():
+    job = st.session_state["scan_future"]
+    if job.done():
+        try:
+            st.session_state["results"] = job.result()
+            st.session_state.pop("scan_error", None)
+        except Exception as exc:
+            st.session_state["scan_error"] = str(exc)
+        finally:
+            st.session_state.pop("scan_future", None)
         st.rerun(scope="app")
-    st.caption("廣告 · 贊助內容")
+    st.subheader("看個廣告稍後一下")
+    st.caption("正在搜尋股票，贊助內容同步展示；完成即自動顯示結果。")
     with st.container(border=True):
-        st.subheader(SPONSOR["name"])
+        st.caption("廣告 · 贊助版位")
         if SPONSOR["image_url"]:
             st.image(SPONSOR["image_url"], use_container_width=True)
+        st.markdown("### " + SPONSOR["name"])
         st.write(SPONSOR["message"])
         if SPONSOR["landing_url"]:
             st.link_button("了解贊助內容", SPONSOR["landing_url"],
                            use_container_width=True)
-    st.progress((AD_SECONDS - remaining) / AD_SECONDS,
-                text=f"廣告展示剩餘 {remaining} 秒")
-    st.caption("倒數結束後會自動開始搜尋，請保持網頁開啟。")
+    st.progress(None, text="正在取得盤後行情並比對技術型態…")
+    st.caption("首次下載歷史資料可能較久，請保持網頁開啟。")
 
 
 EXPORT_FIELDS = {
@@ -222,15 +276,16 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame, eff
     st.caption('標記位置為型態「辨識／確認」日期，不一定是實際高低點當天。紅 K 為上漲、綠 K 為下跌。52 日均線在資料不足時不顯示。')
 
 
-# Replace the search form with a sponsor screen during the 40-second slot.
-if "search_ad_deadline" in st.session_state:
-    st.title('📊 台股 K 棒搜尋器')
-    search_ad_countdown()
+if "scan_future" in st.session_state:
+    st.title("📊 台股 K 棒搜尋器")
+    render_waiting_ad()
     st.stop()
 
 st.title('📊 台股 K 棒搜尋器')
 show_online_count()
 st.caption('台灣上市普通股｜K 棒反轉＋MA5／10／20／52 固定搜尋｜頂底各 Top 25')
+if "scan_error" in st.session_state:
+    st.error("搜尋中斷：" + st.session_state.pop("scan_error"))
 
 # Search controls belong in the page itself (not the sidebar) to avoid
 # Safari's narrow overlay and oversized text clipping on iPhone.
@@ -262,62 +317,19 @@ with st.container(border=True):
             options=[1,2,3,4,5],value=3)
         history_days = st.slider('歷史回溯天數',120,250,165,5)
     run = st.button('🔍 開始搜尋上市股票',type='primary',use_container_width=True)
-    st.caption('每次搜尋前展示 40 秒贊助版位；倒數完畢自動開始搜尋。')
+    st.caption('搜尋時同步顯示贊助內容，行情分析完成即呈現結果。')
 
 if run:
-    # Save immutable inputs before the form is temporarily hidden.
-    st.session_state["queued_criteria"] = {
+    criteria = {
         "query_date": query_date, "min_vol": min_vol,
         "min_money": min_money, "min_price": min_price,
         "targets": list(targets), "ma_windows": list(ma_windows),
         "signal_days": signal_days, "history_days": history_days,
     }
-    st.session_state["search_ad_deadline"] = monotonic() + AD_SECONDS
+    st.session_state["scan_future"] = _search_pool()["executor"].submit(
+        run_stock_scan, criteria)
     st.rerun()
 
-run = st.session_state.pop("pending_search", False)
-if run:
-    opts = st.session_state.pop("queued_criteria")
-    query_date = opts["query_date"]
-    min_vol, min_money, min_price = opts["min_vol"], opts["min_money"], opts["min_price"]
-    targets, ma_windows = opts["targets"], opts["ma_windows"]
-    signal_days, history_days = opts["signal_days"], opts["history_days"]
-    bar = st.progress(0,text='準備搜尋…')
-    details = st.empty()
-    db = None
-    try:
-        db = open_db()
-        with requests.Session() as session:
-            details.info('確認 TWSE 官方上市公司名冊…')
-            companies = load_companies(db,session)
-            industry_map = dict(db.execute("SELECT code,industry FROM listed_companies"))
-            def progress(i,total,msg):
-                bar.progress(min(1.0,i/max(1,total)),text=msg)
-            info = ensure_history(db,session,query_date,history_days,progress,throttle=.85)
-        bar.progress(1.0,text='下載完成，正在分析 K 棒頂底型態…')
-        bottom,top,diag,covered = screen(info['data'],companies,info['effective_date'],
-            min_vol_lots=min_vol,min_turnover_100m=min_money,
-            min_price=min_price,signal_days=signal_days,top_n=25,
-            enabled_categories=targets,ma_windows=ma_windows)
-        for ranking in (bottom, top):
-            if not ranking.empty:
-                ranking['industry'] = ranking['code'].map(industry_map).fillna('未分類')
-        st.session_state['results'] = {
-            'bottom':bottom,'top':top,'diag':diag,'info':{k:v for k,v in info.items() if k!='data'},
-            'data':covered,
-            'criteria':{'date':str(query_date),'min_vol':min_vol,'min_money':min_money,
-                        'min_price':min_price,'signal_days':signal_days,
-                        'targets':list(targets),'ma_windows':list(ma_windows)}
-        }
-        details.empty()
-        bar.empty()
-    except Exception as e:
-        bar.empty()
-        st.error(f'搜尋中斷：{e}')
-        st.info('已成功下載的交易日會保存在本機快取。檢查網路、等待證交所恢復服務後，再按「開始手動搜尋」即可接續，不需全部重抓。')
-    finally:
-        if db:
-            db.close()
 
 if 'results' not in st.session_state:
     st.info('選擇日期與條件後，按「開始搜尋上市股票」即可查看底部、頂部各 Top 25。')
