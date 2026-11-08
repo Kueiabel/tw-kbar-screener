@@ -156,7 +156,7 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame, eff
 
 
 st.title('📊 台股 K 棒搜尋器')
-st.caption('台灣上市普通股｜盤後日 K｜底部、頂部各 Top 25')
+st.caption('台灣上市普通股｜K 棒反轉＋MA5／10／20／52 固定搜尋｜頂底各 Top 25')
 
 # Search controls belong in the page itself (not the sidebar) to avoid
 # Safari's narrow overlay and oversized text clipping on iPhone.
@@ -177,20 +177,17 @@ with st.container(border=True):
     with c_price:
         min_price = st.number_input('最低股價（元）',
             min_value=0.0, max_value=3000.0, value=10.0, step=5.0, format='%.1f')
-    targets = st.multiselect('搜尋型態（可複選）',
-        ['K 棒反轉','W 底／M 頭','均線突破／跌破'],
-        default=['K 棒反轉'])
-    with st.expander('更多設定：均線／訊號天數'):
-        if '均線突破／跌破' in targets:
-            ma_windows = st.multiselect('均線週期', [5,10,20,52],
-                default=[20,52],format_func=lambda n:f'MA{n}')
-        else:
-            ma_windows = [20,52]
+    st.caption('固定搜尋：K 棒反轉＋均線突破／跌破（MA5、MA10、MA20、MA52）')
+    include_wm = st.checkbox('另外搜尋 W 底／M 頭', value=False)
+    targets = ['K 棒反轉', '均線突破／跌破']
+    if include_wm:
+        targets.append('W 底／M 頭')
+    ma_windows = [5, 10, 20, 52]
+    with st.expander('更多設定：訊號天數'):
         signal_days = st.select_slider('最近幾個交易日出現訊號',
             options=[1,2,3,4,5],value=3)
         history_days = st.slider('歷史回溯天數',120,250,165,5)
-    run = st.button('🔍 開始搜尋上市股票',type='primary',use_container_width=True,
-        disabled=not targets or ('均線突破／跌破' in targets and not ma_windows))
+    run = st.button('🔍 開始搜尋上市股票',type='primary',use_container_width=True)
     st.caption('選擇休市日會採用前一個有行情的交易日；首次下載歷史資料需較久。')
 
 if run:
