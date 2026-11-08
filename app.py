@@ -154,7 +154,7 @@ def render_waiting_ad():
         if SPONSOR["landing_url"]:
             st.link_button("了解贊助內容", SPONSOR["landing_url"],
                            use_container_width=True)
-    st.progress(None, text="正在取得盤後行情並比對技術型態…")
+    st.info("⏳ 正在取得盤後行情並比對技術型態…")
     st.caption("首次下載歷史資料可能較久，請保持網頁開啟。")
 
 
