@@ -3,6 +3,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+from threading import Lock
+from time import monotonic
+from uuid import uuid4
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -16,13 +19,20 @@ from twse_source import ensure_history, load_companies, open_db, today_taiwan
 st.set_page_config(page_title="台股 K 棒頂底搜尋器", page_icon="📊", layout="wide", initial_sidebar_state="collapsed")
 st.markdown("""
 <style>
+html, body, .stApp, [data-testid="stAppViewContainer"] {
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Heiti TC","Noto Sans TC",sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
 .block-container{padding-top:1.15rem;max-width:1100px;padding-bottom:3rem;}
+h1{font-size:2rem;line-height:1.3;font-weight:700;}
+[data-testid="stWidgetLabel"] p{font-weight:550;}
+div[data-testid="stAlert"]{border-radius:.75rem;}
 h1,h2,h3{letter-spacing:0;overflow-wrap:anywhere;}
 div[data-testid="stMetric"]{border:1px solid rgba(128,128,128,.20);padding:.55rem .7rem;border-radius:.65rem;}
 [data-testid="stDataFrame"]{max-width:100%;overflow:hidden;}
 @media(max-width:640px){
   .block-container{padding:1rem .8rem 5rem !important;max-width:100% !important;}
-  h1{font-size:clamp(1.4rem,6vw,1.9rem) !important;line-height:1.28 !important;}
+  h1{font-size:clamp(1.35rem,5.7vw,1.8rem) !important;line-height:1.3 !important;}
   h2{font-size:1.25rem !important;}
   h3{font-size:1.1rem !important;}
   p,li{overflow-wrap:anywhere;}
@@ -32,10 +42,34 @@ div[data-testid="stMetric"]{border:1px solid rgba(128,128,128,.20);padding:.55re
   [data-testid="stVerticalBlock"]{gap:.55rem;}
   [data-testid="stPlotlyChart"]{max-width:100%;overflow:hidden;}
   [data-testid="stTabs"] button{font-size:.82rem;white-space:nowrap;}
-  .stButton>button{min-height:2.8rem;}
+  .stButton>button{min-height:2.85rem;border-radius:.65rem;}
+  [data-testid="stWidgetLabel"] p{font-size:.9rem;}
+  div[data-testid="stMetric"]{padding:.52rem .65rem;}
 }
 </style>
 """, unsafe_allow_html=True)
+
+# In-process anonymous presence estimate; not unique people or exact traffic.
+@st.cache_resource(show_spinner=False)
+def _presence_store():
+    return {"lock": Lock(), "sessions": {}}
+
+
+@st.fragment(run_every="30s")
+def show_online_count():
+    store = _presence_store()
+    if "_presence_id" not in st.session_state:
+        st.session_state["_presence_id"] = uuid4().hex
+    now = monotonic()
+    with store["lock"]:
+        sessions = store["sessions"]
+        for sid in [sid for sid, seen in sessions.items() if now - seen > 90]:
+            del sessions[sid]
+        sessions[st.session_state["_presence_id"]] = now
+        count = len(sessions)
+    st.caption(f"🟢 目前約 {count:,} 人在線 · 每 30 秒更新")
+    st.caption("最近 90 秒有活動的瀏覽工作階段估算，不收集姓名或 IP。")
+
 
 EXPORT_FIELDS = {
     'rank':'排名','code':'代號','name':'公司','industry':'產業類別','category':'搜尋類別','pattern':'型態','stage':'階段',
@@ -156,6 +190,7 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame, eff
 
 
 st.title('📊 台股 K 棒搜尋器')
+show_online_count()
 st.caption('台灣上市普通股｜K 棒反轉＋MA5／10／20／52 固定搜尋｜頂底各 Top 25')
 
 # Search controls belong in the page itself (not the sidebar) to avoid
