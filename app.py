@@ -13,13 +13,27 @@ import streamlit as st
 from patterns import screen
 from twse_source import ensure_history, load_companies, open_db, today_taiwan
 
-st.set_page_config(page_title="台股 K 棒頂底搜尋器", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="台股 K 棒頂底搜尋器", page_icon="📊", layout="wide", initial_sidebar_state="collapsed")
 st.markdown("""
 <style>
-.block-container{padding-top:1.6rem;max-width:1450px;}
-h1,h2,h3{letter-spacing:.01em;}
-[data-testid="stSidebar"]{background:rgba(128,128,128,.035)}
-div[data-testid="stMetric"]{border:1px solid rgba(128,128,128,.20);padding:.65rem .9rem;border-radius:.75rem;}
+.block-container{padding-top:1.15rem;max-width:1100px;padding-bottom:3rem;}
+h1,h2,h3{letter-spacing:0;overflow-wrap:anywhere;}
+div[data-testid="stMetric"]{border:1px solid rgba(128,128,128,.20);padding:.55rem .7rem;border-radius:.65rem;}
+[data-testid="stDataFrame"]{max-width:100%;overflow:hidden;}
+@media(max-width:640px){
+  .block-container{padding:1rem .8rem 5rem !important;max-width:100% !important;}
+  h1{font-size:clamp(1.4rem,6vw,1.9rem) !important;line-height:1.28 !important;}
+  h2{font-size:1.25rem !important;}
+  h3{font-size:1.1rem !important;}
+  p,li{overflow-wrap:anywhere;}
+  [data-testid="stMetricValue"]{font-size:1.25rem !important;}
+  [data-testid="stMetricLabel"]{font-size:.78rem !important;}
+  [data-testid="stHorizontalBlock"]{gap:.65rem;}
+  [data-testid="stVerticalBlock"]{gap:.55rem;}
+  [data-testid="stPlotlyChart"]{max-width:100%;overflow:hidden;}
+  [data-testid="stTabs"] button{font-size:.82rem;white-space:nowrap;}
+  .stButton>button{min-height:2.8rem;}
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -106,6 +120,7 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame, eff
         'volume_lots':'今日量(張)','avg_volume_lots':'20日均量(張)',
         'avg_turnover_100m':'20日均成交額(億)','volume_ratio':'量比'
     })
+    st.caption('榜單可左右滑動查看更多欄位；下方可逐檔查看 K 線。')
     st.dataframe(shown[['排名','代號','股票名稱','產業類別','搜尋類別','型態','階段','分數','訊號日期',
                         '收盤價','漲跌幅 %','今日量(張)','20日均量(張)',
                         '20日均成交額(億)','量比']],
@@ -123,10 +138,11 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame, eff
         format_func=lambda i: f"#{i+1:02d}  {frame.iloc[i]['code']} {frame.iloc[i]['name']}｜{frame.iloc[i]['pattern']}",
         key=f'select_{side}')
     rec = frame.iloc[selected]
-    a,b,c,d = st.columns(4)
+    a,b = st.columns(2)
     a.metric('收盤',f"{rec['close']:.2f} 元",f"{rec['change_pct']:+.2f}%")
     b.metric('型態分數',f"{rec['score']}/100")
-    c.metric('20 日平均成交金額',f"{rec['avg_turnover_100m']:.2f} 億")
+    c,d = st.columns(2)
+    c.metric('20 日均成交額',f"{rec['avg_turnover_100m']:.2f} 億")
     d.metric('訊號日期',str(rec['signal_date']))
     st.markdown(f"**{rec['code']} {rec['name']}**　｜　產業：**{rec.get('industry','未分類')}**")
     st.markdown(f"**{rec['pattern']}**　｜　{rec['stage']}　｜　{rec['explanation']}")
@@ -134,36 +150,43 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame, eff
     st.caption('標記位置為型態「辨識／確認」日期，不一定是實際高低點當天。紅 K 為上漲、綠 K 為下跌。52 日均線在資料不足時不顯示。')
 
 
-st.title('📊 台股 K 棒頂底型態搜尋器')
-st.caption('僅上市普通股｜官方日 K｜K 棒反轉優先｜W／M、均線訊號可自行勾選｜頂底各 Top 25')
-with st.sidebar:
-    st.header('🔎 搜尋條件')
-    query_date = st.date_input('查詢日期（手動）',value=last_weekday(),
-        min_value=today_taiwan()-timedelta(days=1400),max_value=today_taiwan(),format='YYYY/MM/DD')
-    st.caption('若選非交易日或資料尚未公布，使用截至該日最後一個有行情的交易日。')
-    st.divider()
-    min_vol = st.number_input('20 日平均成交量 ≥（張）',min_value=0,max_value=100000,
-                              value=1000,step=500)
-    min_money = st.number_input('20 日平均成交金額 ≥（億元）',min_value=0.0,max_value=500.0,
-                                value=1.0,step=.5,format='%.1f')
-    st.markdown('**搜尋目標（可複選）**')
-    targets = st.multiselect('搜尋類型（以 K 棒反轉為主）',
-        ['K 棒反轉','W 底／M 頭','均線突破／跌破'],default=['K 棒反轉'])
-    if '均線突破／跌破' in targets:
-        ma_windows = st.multiselect('均線週期', [5,10,20,52],
-                                    default=[20,52],format_func=lambda n:f'MA{n}')
-    else:
-        ma_windows = [20,52]
-    min_price = st.number_input('最低收盤股價（元）',min_value=0.0,max_value=3000.0,
-                                value=10.0,step=5.0,format='%.1f')
-    signal_days = st.select_slider('最近幾個交易日出現訊號',options=[1,2,3,4,5],value=3)
-    with st.expander('進階設定'):
-        history_days = st.slider('歷史回溯天數（曆日）',120,250,165,5)
-        st.caption('預設約包含 110 個交易日，足以計算 MA52 與中短期 W/M 型態。第一次下載較久，後續沿用快取。')
-    st.divider()
-    run = st.button('🔍 開始手動搜尋',type='primary',use_container_width=True,
-                    disabled=not targets or ('均線突破／跌破' in targets and not ma_windows))
-    st.caption('資料來源：TWSE 官方。僅上市，不含上櫃、ETF、權證。')
+st.title('📊 台股 K 棒搜尋器')
+st.caption('台灣上市普通股｜盤後日 K｜底部、頂部各 Top 25')
+
+# Search controls belong in the page itself (not the sidebar) to avoid
+# Safari's narrow overlay and oversized text clipping on iPhone.
+with st.container(border=True):
+    st.subheader('🔎 搜尋條件')
+    c_date, c_volume = st.columns(2)
+    with c_date:
+        query_date = st.date_input('查詢日期', value=last_weekday(),
+            min_value=today_taiwan()-timedelta(days=1400),
+            max_value=today_taiwan(), format='YYYY/MM/DD')
+    with c_volume:
+        min_vol = st.number_input('20 日均量下限（張）', min_value=0,
+            max_value=100000, value=1000, step=500)
+    c_money, c_price = st.columns(2)
+    with c_money:
+        min_money = st.number_input('20 日均成交金額（億元）',
+            min_value=0.0, max_value=500.0, value=1.0, step=.5, format='%.1f')
+    with c_price:
+        min_price = st.number_input('最低股價（元）',
+            min_value=0.0, max_value=3000.0, value=10.0, step=5.0, format='%.1f')
+    targets = st.multiselect('搜尋型態（可複選）',
+        ['K 棒反轉','W 底／M 頭','均線突破／跌破'],
+        default=['K 棒反轉'])
+    with st.expander('更多設定：均線／訊號天數'):
+        if '均線突破／跌破' in targets:
+            ma_windows = st.multiselect('均線週期', [5,10,20,52],
+                default=[20,52],format_func=lambda n:f'MA{n}')
+        else:
+            ma_windows = [20,52]
+        signal_days = st.select_slider('最近幾個交易日出現訊號',
+            options=[1,2,3,4,5],value=3)
+        history_days = st.slider('歷史回溯天數',120,250,165,5)
+    run = st.button('🔍 開始搜尋上市股票',type='primary',use_container_width=True,
+        disabled=not targets or ('均線突破／跌破' in targets and not ma_windows))
+    st.caption('選擇休市日會採用前一個有行情的交易日；首次下載歷史資料需較久。')
 
 if run:
     bar = st.progress(0,text='準備搜尋…')
@@ -204,20 +227,17 @@ if run:
             db.close()
 
 if 'results' not in st.session_state:
-    st.info('👈 在左側設定日期與流動性門檻，按「開始手動搜尋」產生排行。首次需補齊官方歷史盤後資料；後續搜尋通常只需下載新交易日。')
-    c1,c2,c3=st.columns(3)
-    c1.markdown('#### 🟢 底部機會\n錘子線、低點確認、W 底、吞噬、跌破收回。')
-    c2.markdown('#### 🔴 頂部風險\n流星線、高點確認、M 頭、空頭吞噬、假突破。')
-    c3.markdown('#### 💧 流動性先行\n以 **20 日平均成交量及成交金額** 過濾冷門股。')
+    st.info('選擇日期與條件後，按「開始搜尋上市股票」即可查看底部、頂部各 Top 25。')
 else:
     r = st.session_state['results']
     effective_date=r['info']['effective_date']
     if effective_date != r['criteria']['date']:
         st.warning(f"選擇 {r['criteria']['date']}，該日無完整盤後行情；實際採用 **{effective_date}** 交易日資料。")
     st.success(f"完成搜尋：資料截止 **{effective_date}**｜上市公司名冊 {r['diag']['listed']:,} 檔｜歷史日 K {r['info']['history_sessions']:,} 個交易日")
-    a,b,c,d=st.columns(4)
-    a.metric('可完整分析上市股票',f"{r['diag']['covered']:,} 檔")
-    b.metric('通過流動性門檻',f"{r['diag']['liquid']:,} 檔")
+    a,b=st.columns(2)
+    a.metric('可分析上市股票',f"{r['diag']['covered']:,} 檔")
+    b.metric('符合流動性',f"{r['diag']['liquid']:,} 檔")
+    c,d=st.columns(2)
     c.metric('底部榜單',f"{len(r['bottom'])} / 25 檔")
     d.metric('頂部榜單',f"{len(r['top'])} / 25 檔")
     st.caption(f"本次新下載／檢查交易日 {r['info']['downloaded_days']} 天。產業類別採證交所上市公司官方分類；未分類表示官方欄位缺漏或尚未取得。排行分數並非勝率。")
