@@ -24,7 +24,7 @@ div[data-testid="stMetric"]{border:1px solid rgba(128,128,128,.20);padding:.65re
 """, unsafe_allow_html=True)
 
 EXPORT_FIELDS = {
-    'rank':'排名','code':'代號','name':'公司','category':'搜尋類別','pattern':'型態','stage':'階段',
+    'rank':'排名','code':'代號','name':'公司','industry':'產業類別','category':'搜尋類別','pattern':'型態','stage':'階段',
     'score':'評分','signal_date':'訊號日期','age':'距今交易日',
     'close':'最新收盤價','change_pct':'當日漲跌幅(%)','volume_lots':'當日成交量(張)',
     'avg_volume_lots':'20日均量(張)','avg_turnover_100m':'20日均成交金額(億元)',
@@ -100,13 +100,13 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame, eff
         st.info('這個日期與條件下，沒有符合定義的型態。可以延長訊號觀察天數或稍微放寬流動性門檻；不會以不符合的股票湊滿 25 名。')
         return
     shown = frame.rename(columns={
-        'rank':'排名','code':'代號','name':'股票名稱','category':'搜尋類別','pattern':'型態','stage':'階段',
+        'rank':'排名','code':'代號','name':'股票名稱','industry':'產業類別','category':'搜尋類別','pattern':'型態','stage':'階段',
         'score':'分數','signal_date':'訊號日期','age':'距今天數(交易日)',
         'close':'收盤價','change_pct':'漲跌幅 %',
         'volume_lots':'今日量(張)','avg_volume_lots':'20日均量(張)',
         'avg_turnover_100m':'20日均成交額(億)','volume_ratio':'量比'
     })
-    st.dataframe(shown[['排名','代號','股票名稱','搜尋類別','型態','階段','分數','訊號日期',
+    st.dataframe(shown[['排名','代號','股票名稱','產業類別','搜尋類別','型態','階段','分數','訊號日期',
                         '收盤價','漲跌幅 %','今日量(張)','20日均量(張)',
                         '20日均成交額(億)','量比']],
         hide_index=True,use_container_width=True,height=min(35*len(frame)+44,900),
@@ -128,6 +128,7 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame, eff
     b.metric('型態分數',f"{rec['score']}/100")
     c.metric('20 日平均成交金額',f"{rec['avg_turnover_100m']:.2f} 億")
     d.metric('訊號日期',str(rec['signal_date']))
+    st.markdown(f"**{rec['code']} {rec['name']}**　｜　產業：**{rec.get('industry','未分類')}**")
     st.markdown(f"**{rec['pattern']}**　｜　{rec['stage']}　｜　{rec['explanation']}")
     render_chart(full_data,rec,side)
     st.caption('標記位置為型態「辨識／確認」日期，不一定是實際高低點當天。紅 K 為上漲、綠 K 為下跌。60 日均線在資料不足時不顯示。')
@@ -173,6 +174,7 @@ if run:
         with requests.Session() as session:
             details.info('確認 TWSE 官方上市公司名冊…')
             companies = load_companies(db,session)
+            industry_map = dict(db.execute("SELECT code,industry FROM listed_companies"))
             def progress(i,total,msg):
                 bar.progress(min(1.0,i/max(1,total)),text=msg)
             info = ensure_history(db,session,query_date,history_days,progress,throttle=.85)
@@ -181,6 +183,9 @@ if run:
             min_vol_lots=min_vol,min_turnover_100m=min_money,
             min_price=min_price,signal_days=signal_days,top_n=25,
             enabled_categories=targets,ma_windows=ma_windows)
+        for ranking in (bottom, top):
+            if not ranking.empty:
+                ranking['industry'] = ranking['code'].map(industry_map).fillna('未分類')
         st.session_state['results'] = {
             'bottom':bottom,'top':top,'diag':diag,'info':{k:v for k,v in info.items() if k!='data'},
             'data':covered,
@@ -215,7 +220,7 @@ else:
     b.metric('通過流動性門檻',f"{r['diag']['liquid']:,} 檔")
     c.metric('底部榜單',f"{len(r['bottom'])} / 25 檔")
     d.metric('頂部榜單',f"{len(r['top'])} / 25 檔")
-    st.caption(f"本次新下載／檢查交易日 {r['info']['downloaded_days']} 天。名單依價格型態、成交量相對變化、均線與流動性綜合排序，分數僅為自訂相對強弱，並非勝率。")
+    st.caption(f"本次新下載／檢查交易日 {r['info']['downloaded_days']} 天。產業類別採證交所上市公司官方分類；未分類表示官方欄位缺漏或尚未取得。排行分數並非勝率。")
     tabs=st.tabs(['🟢 底部型態 Top 25','🔴 頂部型態 Top 25','ℹ️ 評分規則與注意事項'])
     with tabs[0]:
         render_rankings(r['bottom'],'bottom',r['data'],effective_date)
