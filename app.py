@@ -60,7 +60,7 @@ def render_chart(bars: pd.DataFrame, item, side: str):
     series['ma5'] = series['close'].rolling(5).mean()
     series['ma10'] = series['close'].rolling(10).mean()
     series['ma20'] = series['close'].rolling(20).mean()
-    series['ma60'] = series['close'].rolling(60).mean()
+    series['ma52'] = series['close'].rolling(52).mean()
     x = series.date.astype(str).to_list()
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=.055,
                         row_heights=[.74,.26])
@@ -71,7 +71,7 @@ def render_chart(bars: pd.DataFrame, item, side: str):
         increasing_line_color=up, decreasing_line_color=down,
         increasing_fillcolor=up, decreasing_fillcolor=down), row=1,col=1)
     for col, clr, name in [('ma5','#e6ad35','MA5'),('ma10','#57a8f3','MA10'),
-                           ('ma20','#2abb75','MA20'),('ma60','#ca9ee7','MA60')]:
+                           ('ma20','#2abb75','MA20'),('ma52','#ca9ee7','MA52')]:
         fig.add_trace(go.Scatter(x=x,y=series[col],mode='lines',name=name,
                                  line=dict(width=1.65,color=clr)),row=1,col=1)
     vol_colors = [up if c >= o else down for o,c in zip(series.open,series.close)]
@@ -131,7 +131,7 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame, eff
     st.markdown(f"**{rec['code']} {rec['name']}**　｜　產業：**{rec.get('industry','未分類')}**")
     st.markdown(f"**{rec['pattern']}**　｜　{rec['stage']}　｜　{rec['explanation']}")
     render_chart(full_data,rec,side)
-    st.caption('標記位置為型態「辨識／確認」日期，不一定是實際高低點當天。紅 K 為上漲、綠 K 為下跌。60 日均線在資料不足時不顯示。')
+    st.caption('標記位置為型態「辨識／確認」日期，不一定是實際高低點當天。紅 K 為上漲、綠 K 為下跌。52 日均線在資料不足時不顯示。')
 
 
 st.title('📊 台股 K 棒頂底型態搜尋器')
@@ -150,16 +150,16 @@ with st.sidebar:
     targets = st.multiselect('搜尋類型（以 K 棒反轉為主）',
         ['K 棒反轉','W 底／M 頭','均線突破／跌破'],default=['K 棒反轉'])
     if '均線突破／跌破' in targets:
-        ma_windows = st.multiselect('均線週期', [5,10,20,60],
-                                    default=[20,60],format_func=lambda n:f'MA{n}')
+        ma_windows = st.multiselect('均線週期', [5,10,20,52],
+                                    default=[20,52],format_func=lambda n:f'MA{n}')
     else:
-        ma_windows = [20,60]
+        ma_windows = [20,52]
     min_price = st.number_input('最低收盤股價（元）',min_value=0.0,max_value=3000.0,
                                 value=10.0,step=5.0,format='%.1f')
     signal_days = st.select_slider('最近幾個交易日出現訊號',options=[1,2,3,4,5],value=3)
     with st.expander('進階設定'):
         history_days = st.slider('歷史回溯天數（曆日）',120,250,165,5)
-        st.caption('預設約包含 110 個交易日，足以計算 MA60 與中短期 W/M 型態。第一次下載較久，後續沿用快取。')
+        st.caption('預設約包含 110 個交易日，足以計算 MA52 與中短期 W/M 型態。第一次下載較久，後續沿用快取。')
     st.divider()
     run = st.button('🔍 開始手動搜尋',type='primary',use_container_width=True,
                     disabled=not targets or ('均線突破／跌破' in targets and not ma_windows))
