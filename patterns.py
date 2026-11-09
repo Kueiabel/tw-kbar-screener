@@ -350,7 +350,8 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
            min_price: float = 10.0, max_price: float | None = None, signal_days: int = 3,
            top_n: int = 25, enabled_categories=("K 棒反轉",),
            ma_windows=(20,52), hammer_only_bottom: bool = False,
-           min_history_bars: int = 65, daily_liquidity: dict | None = None):
+           min_history_bars: int = 65, daily_liquidity: dict | None = None,
+           require_above_ma5: bool = False):
     """Returns (bottom dataframe, top dataframe, diagnostics, selected price dataframe).
 
     No substitution of unqualified stocks to reach 25; displays fewer if necessary.
@@ -375,6 +376,11 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
         else:
             vols = grp.shares.tail(20).mean()
             turns = grp.turnover.tail(20).mean()
+        # MA5 is an optional latest-close filter, not a crossover signal.
+        # For weekly bars it naturally means the most recent 5 weekly closes.
+        if require_above_ma5 and not (
+                float(grp.close.iloc[-1]) > float(grp.close.tail(5).mean())):
+            continue
         if (vols < min_vol_lots*1000 or turns < min_turnover_100m*1e8
             or grp.close.iloc[-1] < min_price
             or (max_price is not None and grp.close.iloc[-1] > max_price)
