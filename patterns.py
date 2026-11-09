@@ -209,7 +209,7 @@ def _score(df: pd.DataFrame, i: int, side: str, base: int, age: int):
 
 def screen(data: pd.DataFrame, companies: dict[str, str],
            as_of: str, min_vol_lots: int = 1000, min_turnover_100m: float = 1.0,
-           min_price: float = 10.0, signal_days: int = 3,
+           min_price: float = 10.0, max_price: float | None = None, signal_days: int = 3,
            top_n: int = 25, enabled_categories=("K 棒反轉",),
            ma_windows=(20,52)):
     """Returns (bottom dataframe, top dataframe, diagnostics, selected price dataframe).
@@ -232,7 +232,9 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
         vols = grp.shares.tail(20).mean()
         turns = grp.turnover.tail(20).mean()
         if (vols < min_vol_lots*1000 or turns < min_turnover_100m*1e8
-            or grp.close.iloc[-1] < min_price or grp.shares.iloc[-1] <= 0):
+            or grp.close.iloc[-1] < min_price
+            or (max_price is not None and grp.close.iloc[-1] > max_price)
+            or grp.shares.iloc[-1] <= 0):
             continue
         liquid += 1
         code_signals = 0
