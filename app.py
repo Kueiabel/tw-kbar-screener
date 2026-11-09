@@ -123,17 +123,17 @@ def show_online_count():
     st.caption(f"約 {count:,} 個活躍瀏覽工作階段 · 最近 90 秒估算，非精確訪客數")
 
 
-# Optional Shopee affiliate promotion. Configure the exact approved
-# tracking link in Streamlit Cloud Secrets as SHOPEE_AFFILIATE_URL.
-# An ordinary product URL must not be presented as a commission-tracking link.
+# Shopee referral link supplied by the site owner. An optional Streamlit
+# Secret SHOPEE_AFFILIATE_URL can override this URL without a code change.
+# The affiliate provider determines actual tracking and commission eligibility.
+SHOPEE_OWNER_LINK = "https://s.shopee.tw/1BNlwubj44"
 def shopee_affiliate_url() -> str:
     try:
         configured = str(st.secrets.get("SHOPEE_AFFILIATE_URL", "")).strip()
     except (FileNotFoundError, KeyError):
         configured = ""
-    configured = configured or os.environ.get("SHOPEE_AFFILIATE_URL", "").strip()
-    if not configured:
-        return ""
+    configured = (configured or os.environ.get("SHOPEE_AFFILIATE_URL", "").strip()
+                  or SHOPEE_OWNER_LINK)
     parsed = urlparse(configured)
     host = (parsed.hostname or "").lower()
     allowed = ("shopee.tw", "shope.ee", "shp.ee")
@@ -149,8 +149,8 @@ def render_affiliate_promotion():
         return
     with st.container(border=True):
         st.caption("廣告・蝦皮聯盟推廣｜點擊購買可能為本站帶來分潤")
-        st.markdown("**蝦皮購物精選推薦**")
-        st.link_button("前往蝦皮查看商品", affiliate,
+        st.markdown("**蝦皮購物推廣連結**")
+        st.link_button("前往蝦皮購物", affiliate,
                        use_container_width=True)
         st.caption("此為自願點擊的站外推廣連結，不影響股票搜尋結果。")
 
