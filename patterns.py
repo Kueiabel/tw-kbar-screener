@@ -327,7 +327,8 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
            as_of: str, min_vol_lots: int = 1000, min_turnover_100m: float = 1.0,
            min_price: float = 10.0, max_price: float | None = None, signal_days: int = 3,
            top_n: int = 25, enabled_categories=("K 棒反轉",),
-           ma_windows=(20,52), hammer_only_bottom: bool = False):
+           ma_windows=(20,52), hammer_only_bottom: bool = False,
+           min_history_bars: int = 65, daily_liquidity: dict | None = None):
     """Returns (bottom dataframe, top dataframe, diagnostics, selected price dataframe).
 
     No substitution of unqualified stocks to reach 25; displays fewer if necessary.
@@ -342,11 +343,16 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
     covered, liquid, with_patterns = 0, 0, 0
     for code, grp in data.groupby('code', sort=False):
         grp = grp.reset_index(drop=True)
-        if len(grp) < 65 or str(grp.date.iloc[-1]) != as_of:
+        if len(grp) < min_history_bars or str(grp.date.iloc[-1]) != as_of:
             continue
         covered += 1
-        vols = grp.shares.tail(20).mean()
-        turns = grp.turnover.tail(20).mean()
+        if daily_liquidity is not None:
+            if code not in daily_liquidity:
+                continue
+            vols, turns = daily_liquidity[code]
+        else:
+            vols = grp.shares.tail(20).mean()
+            turns = grp.turnover.tail(20).mean()
         if (vols < min_vol_lots*1000 or turns < min_turnover_100m*1e8
             or grp.close.iloc[-1] < min_price
             or (max_price is not None and grp.close.iloc[-1] > max_price)
@@ -354,7 +360,7 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
             continue
         liquid += 1
         code_signals = 0
-        for age in range(min(signal_days,len(grp)-64)):
+        for age in range(min(signal_days, len(grp)-min_history_bars+1)):
             i = len(grp) - 1 - age
             partial = grp.iloc[:i+1]
             for side, name, base, reason, stage, category in _patterns_at(
