@@ -294,7 +294,7 @@ def to_csv(frame: pd.DataFrame) -> bytes:
     return frame[cols].rename(columns=EXPORT_FIELDS).to_csv(index=False).encode('utf-8-sig')
 
 
-def render_chart(bars: pd.DataFrame, item, side: str):
+def render_chart(bars: pd.DataFrame, item, side: str, timeframe: str = 'D'):
     code = str(item['code'])
     series = bars[bars.code == code].sort_values('date').tail(100).copy()
     if series.empty:
@@ -310,7 +310,8 @@ def render_chart(bars: pd.DataFrame, item, side: str):
     up = '#dc3545'  # 台股慣例：紅漲綠跌
     down = '#13a781'
     fig.add_trace(go.Candlestick(x=x, open=series.open, high=series.high,
-        low=series.low, close=series.close, name='日 K 線',
+        low=series.low, close=series.close,
+        name='週 K 線' if timeframe == 'W' else '日 K 線',
         increasing_line_color=up, decreasing_line_color=down,
         increasing_fillcolor=up, decreasing_fillcolor=down), row=1,col=1)
     for col, clr, name in [('ma5','#e6ad35','MA5'),('ma10','#57a8f3','MA10'),
@@ -338,7 +339,8 @@ def render_chart(bars: pd.DataFrame, item, side: str):
     st.plotly_chart(fig,use_container_width=True,config={'displaylogo':False})
 
 
-def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame, effective_date: str):
+def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame,
+                    effective_date: str, timeframe: str = 'D'):
     if frame.empty:
         st.info('這個日期與條件下，沒有符合定義的型態。可以延長訊號觀察天數或稍微放寬流動性門檻；不會以不符合的股票湊滿 25 名。')
         return
@@ -404,13 +406,15 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame, eff
         d.metric('訊號日期',str(rec['signal_date']))
         st.markdown(f"**{rec['code']} {rec['name']}**　｜　產業：**{rec.get('industry','未分類')}**")
         st.markdown(f"**{rec['pattern']}**　｜　{rec['stage']}　｜　{rec['explanation']}")
-        render_chart(full_data,rec,side)
-        st.caption('標記位置為型態「辨識／確認」日期，不一定是實際高低點當天。紅 K 為上漲、綠 K 為下跌。52 日均線在資料不足時不顯示。')
+        render_chart(full_data,rec,side,timeframe)
+        st.caption('標記位置為型態「辨識／確認」日期。紅 K 為上漲、綠 K 為下跌。'
+                   + ('週 K 採完整交易週，均線為週均線。' if timeframe == 'W'
+                      else '均線為日均線。'))
 
 
 # Mobile home-screen users have no obvious browser refresh control.
 # This reruns the Streamlit page without interrupting an active scan.
-st.markdown('<div class="qs-kicker">TW STOCK SCREENER · 日 K 篩選</div>',
+st.markdown('<div class="qs-kicker">TW STOCK SCREENER · 日／週 K 篩選</div>',
             unsafe_allow_html=True)
 st.title('台股 K 棒快速篩選')
 st.markdown('<p class="qs-subtitle">快速找出可能反轉的上市股票，再用自己的交易工具驗證。</p>',
@@ -557,13 +561,16 @@ if 'results' in st.session_state:
     r = st.session_state['results']
     effective_date=r['info']['effective_date']
     if effective_date != r['criteria']['date']:
-        st.warning(f"選擇 {r['criteria']['date']}，該日無完整盤後行情；實際採用 **{effective_date}** 交易日資料。")
+        if r['criteria'].get('timeframe') == 'W':
+            st.info(f"週 K 僅搜尋已完成的交易週，最後使用 **{effective_date}** 交易日資料。")
+        else:
+            st.warning(f"選擇 {r['criteria']['date']}，該日無完整盤後行情；實際採用 **{effective_date}** 交易日資料。")
     frame_label = '週 K' if r['criteria'].get('timeframe') == 'W' else '日 K'
     st.markdown(
         '<div class="qs-summary">'
         f'<div class="qs-summary-label">篩選完成 · 盤後{frame_label}</div>'
         f'<div class="qs-summary-date">資料截至 {escape(str(effective_date))}</div>'
-        f'<div class="qs-summary-note">歷史資料 {r["info"]["history_sessions"]:,} 個交易日 · '
+        f'<div class="qs-summary-note">歷史資料 {r["info"]["history_sessions"]:,} 個{("週" if frame_label == "週 K" else "交易日")} · '
         f'上市名冊 {r["diag"]["listed"]:,} 檔</div>'
         '</div>',
         unsafe_allow_html=True)
@@ -588,9 +595,11 @@ if 'results' in st.session_state:
                + f' 名單使用盤後{frame_label}；評分不是勝率。')
     tabs=st.tabs(['底部候選 Top 25','頂部候選 Top 25','判斷規則'])
     with tabs[0]:
-        render_rankings(r['bottom'],'bottom',r['data'],effective_date)
+        render_rankings(r['bottom'],'bottom',r['data'],effective_date,
+                        r['criteria'].get('timeframe','D'))
     with tabs[1]:
-        render_rankings(r['top'],'top',r['data'],effective_date)
+        render_rankings(r['top'],'top',r['data'],effective_date,
+                        r['criteria'].get('timeframe','D'))
     with tabs[2]:
         st.markdown('''
 **判斷型態**
@@ -602,7 +611,7 @@ if 'results' in st.session_state:
 
 **務必留意**
 
-1. 資料為**盤後**日 K，不是即時交易訊號。當天行情尚未公布時，會使用前一個可取得的交易日。
+1. 資料為**盤後**日 K 或完整週 K，不是即時交易訊號。週 K 由官方日 K 合成；本週尚未完成時使用上一個完整交易週。分 K 尚未啟用。
 2. TWSE 官方 OHLC 為**未還原權息**價格。除權息、減資、分割等因素可能形成假性跳空與技術型態；請回到券商圖表人工核對。
 3. W 底、M 頭與局部高低點等定義為可重現的幾何規則，並非市場公認的唯一標準。底部／頂部是**候選型態**，不代表一定見底或見頂。
 4. 股票名冊以目前上市公司為準，搜尋較早歷史日不等於嚴格的歷史成分股回測；不適合直接用來計算真實策略勝率。
