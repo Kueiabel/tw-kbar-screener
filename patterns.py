@@ -142,27 +142,22 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
     def add(side, label, score, reason, stage="已確認", category="K 棒反轉"):
         if category in allowed:
             res.append((side, label, score, reason, stage, category))
-    # Hammer: day 1 forms, day 2 MUST close green and break the hammer's
-    # entire high (not just its real-body high), day 3 is the first day shown.
-    # This uses only completed daily candles; do not emit an early-warning
-    # hammer signal on days 1/2.
-    if len(c) >= 34 and _hammer_at(o, h, l, c, -3):
-        hammer_high = float(h[-3])
-        breakout_day = (c[-2] > o[-2] and c[-2] > hammer_high * 1.003)
-        if breakout_day:
-            hammer_date = str(df.date.iloc[-3])
-            breakout_date = str(df.date.iloc[-2])
-            holds = cl > hammer_high
-            third_status = ("第三日仍站在錘頭最高價之上"
-                            if holds else "第三日已跌回錘頭最高價以下，注意訊號失效風險")
-            volume_note = ("；突破日量增" if shares[-2] > shares[-3]
+    # Day 1: hammer. Day 2: bullish candle CLOSES above the hammer's
+    # entire high by 0.3%. The signal is available as soon as day-2 EOD data
+    # is published, so users can review it on the morning of trading day 3.
+    # Never treat a hammer by itself as a confirmed entry signal.
+    if _hammer_at(o, h, l, c, -2):
+        hammer_high = float(h[-2])
+        if cl > op and cl > hammer_high * 1.003:
+            hammer_date = str(df.date.iloc[-2])
+            breakout_date = str(df.date.iloc[-1])
+            volume_note = ("；突破日量增" if shares[-1] > shares[-2]
                            else "；突破日量未增")
             add("bottom", "錘頭隔日突破・第三日觀察", 68,
                 f"{hammer_date} 錘頭；{breakout_date} 紅 K 收盤突破錘頭最高價 "
-                f"{hammer_high:.2f} 元 0.3% 以上{volume_note}；{third_status}",
-                "第三日觀察")
-    # Other one-bar candlestick patterns and neutral early warnings remain
-    # independently selectable through the existing K-bar category.
+                f"{hammer_high:.2f} 元 0.3% 以上{volume_note}；"
+                "供下一交易日觀察，尚未代表後續一定上漲",
+                "隔日突破已確認")
     if upper >= 2*max(body,span*.08) and upper >= span*.52 and lower <= span*.23 and cl <= lo+span*.4 and near_top:
         add("top", "流星線／長上影", 37, "上影線明顯長於實體，收盤回到區間下半部")
     # Candlestick families shown in the reference examples; neutral/ambiguous
@@ -340,8 +335,8 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
             partial = grp.iloc[:i+1]
             for side, name, base, reason, stage, category in _patterns_at(
                     partial, enabled_categories=enabled_categories, ma_windows=ma_windows):
-                # The hammer is designed as a day-three review, not a
-                # recurring historical signal carried into subsequent days.
+                # Show this breakout only when it is the most recent
+                # completed trading day, ready for next-session review.
                 if name == "錘頭隔日突破・第三日觀察" and age != 0:
                     continue
                 code_signals += 1
