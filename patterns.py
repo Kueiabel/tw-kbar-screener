@@ -303,7 +303,7 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
            as_of: str, min_vol_lots: int = 1000, min_turnover_100m: float = 1.0,
            min_price: float = 10.0, max_price: float | None = None, signal_days: int = 3,
            top_n: int = 25, enabled_categories=("K 棒反轉",),
-           ma_windows=(20,52)):
+           ma_windows=(20,52), hammer_only_bottom: bool = False):
     """Returns (bottom dataframe, top dataframe, diagnostics, selected price dataframe).
 
     No substitution of unqualified stocks to reach 25; displays fewer if necessary.
@@ -338,6 +338,11 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
                 # Show this breakout only when it is the most recent
                 # completed trading day, ready for next-session review.
                 if name == "錘頭隔日突破・第三日觀察" and age != 0:
+                    continue
+                # Strict hammer scan: the bottom list must not contain
+                # unrelated MA, engulfing or unconfirmed reversal signals.
+                # Top-side screening is unchanged.
+                if hammer_only_bottom and side == "bottom" and name != "錘頭隔日突破・第三日觀察":
                     continue
                 code_signals += 1
                 score, ratio = _score(grp,i,side,base,age)
