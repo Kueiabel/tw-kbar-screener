@@ -71,6 +71,33 @@ div[data-testid="stMetric"]{border:1px solid rgba(128,128,128,.16);padding:.65re
   [data-testid="stWidgetLabel"] p{font-size:.9rem;}
   div[data-testid="stMetric"]{padding:.54rem .68rem;}
 }
+
+/* Make refresh and re-screen actions clear without altering the theme. */
+button[kind="primary"]{
+  font-weight:700 !important;
+  border-radius:12px !important;
+  min-height:3rem !important;
+}
+div[data-testid="stExpander"] > details {
+  border:2px solid rgba(58,153,255,.85) !important;
+  border-radius:14px !important;
+  background:rgba(58,153,255,.09) !important;
+}
+div[data-testid="stExpander"] > details > summary {
+  padding:.85rem .95rem !important;
+  font-size:1rem !important;
+  font-weight:700 !important;
+  letter-spacing:.02em !important;
+}
+div[data-testid="stExpander"] > details > summary:hover{
+  background:rgba(58,153,255,.14) !important;
+}
+@media(max-width:640px){
+  button[kind="primary"] { min-height:3.25rem !important; }
+  div[data-testid="stExpander"] > details > summary{
+    padding:1rem .85rem !important;
+  }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -308,7 +335,8 @@ header_main, header_refresh = st.columns([5, 2], vertical_alignment="center")
 with header_main:
     st.title('📊 台股 K 棒搜尋器')
 with header_refresh:
-    if st.button('↻ 更新畫面', key='refresh_page', use_container_width=True,
+    if st.button('🔄 更新畫面', key='refresh_page', type='primary',
+                 use_container_width=True,
                  disabled='scan_future' in st.session_state,
                  help='重新整理網站畫面；若需最新選股結果，請再執行搜尋。'):
         st.rerun()
@@ -325,7 +353,9 @@ if "scan_error" in st.session_state:
 # Keep the editable search panel immediately below the header/refresh button.
 # When results exist, collapse it by default so the rankings remain visible
 # without a long scroll on iPhone home-screen mode.
-search_panel = (st.expander('調整搜尋條件並重新搜尋', expanded=False)
+if 'results' in st.session_state:
+    st.markdown('**👇 想重新選股？請點下方「調整搜尋條件」展開。**')
+search_panel = (st.expander('🔎 調整搜尋條件・重新搜尋（點此展開）', expanded=False)
                 if 'results' in st.session_state else st.container(border=True))
 with search_panel:
     st.subheader('🔎 搜尋條件')
