@@ -157,7 +157,7 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
                 f"{hammer_date} 錘頭；{breakout_date} 紅 K 收盤突破錘頭最高價 "
                 f"{hammer_high:.2f} 元 0.3% 以上{volume_note}；"
                 "供下一交易日觀察，尚未代表後續一定上漲",
-                "隔日突破已確認")
+                "隔日突破已確認", category="錘頭隔日突破")
     # Strict early-bottom breakout, not a breakout after a long sideways base:
     # 1) the pivot must be the genuine recent low in an established decline;
     # 2) today's confirmation is nearby in price/time and must reclaim the
@@ -221,17 +221,21 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
         # Morning star confirmed in a fresh decline (rather than a mid-range
         # three-bar color coincidence). Red confirmation closes above the
         # midpoint of the first bearish body with a meaningful real body.
-        star_near_low = float(np.min(l[-3:])) <= float(np.min(l[-23:-3]))*1.015
-        star_prior_decline = c[-4] <= c[-12]*.965
-        star_first_bear = c[-3] < o[-3] and b0 >= (h[-3]-l[-3])*.45
-        star_small = b1 <= b0*.40
-        star_confirm = (cl > op and b2 >= b0*.55
-                        and cl > (o[-3]+c[-3])/2 and cl > max(o[-2],c[-2]))
+        # Morning star = decline + bearish candle + small indecision candle
+        # + bullish close above the first candle's body midpoint.
+        # Avoid excessive hard filters that reject legitimate near-bottom stars.
+        star_near_low = float(np.min(l[-3:])) <= float(np.min(l[-23:-3]))*1.03
+        star_prior_decline = c[-4] <= c[-12]*.98
+        star_first_bear = c[-3] < o[-3] and b0 >= (h[-3]-l[-3])*.4
+        star_small = b1 <= b0*.5
+        star_confirm = (cl > op and b2 >= b0*.4
+                        and cl > (o[-3]+c[-3])/2
+                        and cl > max(o[-2],c[-2]))
         if (star_first_bear and star_small and star_confirm
                 and star_near_low and star_prior_decline):
             add("bottom", "晨星三 K 確認", 62,
-                "下跌近低點出現長黑 K、小實體止跌 K、紅 K 收復第一根實體中點",
-                "三 K 確認")
+                "跌勢低檔：長黑 K、小實體止跌 K、紅 K 收復首根實體中點；需自行驗證",
+                "三 K 確認", category="晨星反轉")
         if c[-3] > o[-3] and cl < op and cl < (o[-3]+c[-3])/2 and near_top:
             add("top", "夜星三 K 反轉", 47, "長紅 K、小實體、黑 K 跌破第一根實體中點")
     if lo < r20_low*.992 and cl > r20_low*1.004 and cl > op:
@@ -396,7 +400,7 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
                 # Show this breakout only when it is the most recent
                 # completed trading day, ready for next-session review.
                 if name in ("錘頭隔日突破・第三日觀察",
-                            "低點止跌後突破", "晨星三 K 確認") and age != 0:
+                            "低點止跌後突破") and age != 0:
                     continue
                 # Strict hammer scan: the bottom list must not contain
                 # unrelated MA, engulfing or unconfirmed reversal signals.
