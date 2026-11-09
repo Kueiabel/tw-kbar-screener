@@ -128,26 +128,12 @@ def show_online_count():
     st.caption(f"約 {count:,} 個活躍瀏覽工作階段 · 最近 90 秒估算，非精確訪客數")
 
 
-# Shopee referral link supplied by the site owner. An optional Streamlit
-# Secret SHOPEE_AFFILIATE_URL can override this URL without a code change.
-# The affiliate provider determines actual tracking and commission eligibility.
-SHOPEE_OWNER_LINK = "https://s.shopee.tw/1BNlwubj44"
+# Owner-supplied product promotion URL; shared by the banner and button.
+SHOPEE_OWNER_LINK = "https://s.shopee.tw/9KjTlVBiWa"
+
+
 def shopee_affiliate_url() -> str:
-    # Streamlit can raise a secrets-specific exception if no secrets.toml
-    # exists; a public owner URL should still work without any cloud secrets.
-    try:
-        configured = str(st.secrets.get("SHOPEE_AFFILIATE_URL", "")).strip()
-    except Exception:
-        configured = ""
-    configured = (configured or os.environ.get("SHOPEE_AFFILIATE_URL", "").strip()
-                  or SHOPEE_OWNER_LINK)
-    parsed = urlparse(configured)
-    host = (parsed.hostname or "").lower()
-    allowed = ("shopee.tw", "shope.ee", "shp.ee")
-    if parsed.scheme == "https" and any(
-            host == d or host.endswith("." + d) for d in allowed):
-        return configured
-    # An invalid optional secret should not hide the owner's published ad.
+    # Keep the displayed product destination in sync with the owner's latest URL.
     return SHOPEE_OWNER_LINK
 
 
