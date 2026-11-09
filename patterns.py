@@ -158,28 +158,38 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
                 f"{hammer_high:.2f} 元 0.3% 以上{volume_note}；"
                 "供下一交易日觀察，尚未代表後續一定上漲",
                 "隔日突破已確認")
-    # Optional "Transcend-style" rebound: a fresh downside pivot low followed
-    # by the FIRST bullish close above the pivot candle's high. No need for
-    # the pivot candle to be a textbook hammer.
+    # Strict early-bottom breakout, not a breakout after a long sideways base:
+    # 1) the pivot must be the genuine recent low in an established decline;
+    # 2) today's confirmation is nearby in price/time and must reclaim the
+    # highest high since the pivot, not merely a tiny pivot candle's high.
     if "低點止跌突破" in allowed and len(c) >= 42 and cl > op:
+        today_range = max(float(hi-lo), .00001)
         for bars_after_low in range(1, 5):
             pivot = len(c) - 1 - bars_after_low
             pivot_low = float(l[pivot])
             pivot_high = float(h[pivot])
-            if pivot_high <= 0:
+            if pivot_low <= 0 or pivot_high <= 0:
                 continue
-            # Meaningful preceding decline and a low near the past 15 days.
-            downtrend = (c[pivot-1] <= c[pivot-9]*.97
-                         and pivot_low <= np.min(l[pivot-15:pivot])*1.01)
-            held_low = np.min(l[pivot+1:]) >= pivot_low*.995
-            breakout = (cl > pivot_high*1.003
-                        and c[-2] <= pivot_high*1.003)
-            if downtrend and held_low and breakout:
+            pre8 = float(c[pivot-9])
+            pre4 = float(c[pivot-5])
+            pivot_close = float(c[pivot])
+            downtrend = (float(c[pivot-1]) <= pre8*.965
+                         and pivot_close <= pre4*.985
+                         and pivot_low <= float(np.min(l[pivot-20:pivot]))*1.003)
+            # A fresh reversal must be close to the bottom, not after
+            # substantial recovery or weeks of sideways trading.
+            near_pivot = cl <= pivot_low*1.085
+            held_low = float(np.min(l[pivot+1:])) >= pivot_low*.998
+            prior_high = float(np.max(h[pivot:-1]))
+            breakout = (cl >= prior_high*1.003
+                        and c[-2] <= prior_high*1.003
+                        and (cl-op) >= today_range*.45)
+            if downtrend and near_pivot and held_low and breakout:
                 pivot_date = str(df.date.iloc[pivot])
                 add("bottom", "低點止跌後突破", 61,
-                    f"{pivot_date} 出現近期低點 {pivot_low:.2f} 元；"
-                    f"今日紅 K 收盤首次站上該低點 K 棒最高價 {pivot_high:.2f} 元 "
-                    "0.3% 以上；請自行核對量能與後續走勢",
+                    f"{pivot_date} 急跌後創近 20 期低點 {pivot_low:.2f} 元；"
+                    f"近期未破低且本期紅 K 收盤突破止跌區間高點 {prior_high:.2f} 元"
+                    " 0.3% 以上，仍需核對後續走勢",
                     "突破已確認", category="低點止跌突破")
                 break
     if upper >= 2*max(body,span*.08) and upper >= span*.52 and lower <= span*.23 and cl <= lo+span*.4 and near_top:
@@ -208,8 +218,20 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
     # 3-candle morning/evening star. Avoid mandatory opening gaps (TWSE trades continuously).
     b0 = abs(c[-3]-o[-3]); b1 = abs(c[-2]-o[-2]); b2 = abs(cl-op)
     if b0 > 0 and b2 > 0 and b1 < b0*.5 and b2 > b1*1.15:
-        if c[-3] < o[-3] and cl > op and cl > (o[-3]+c[-3])/2 and near_bottom:
-            add("bottom", "晨星三 K 反轉", 47, "長黑 K、小實體、紅 K 收回第一根實體中點")
+        # Morning star confirmed in a fresh decline (rather than a mid-range
+        # three-bar color coincidence). Red confirmation closes above the
+        # midpoint of the first bearish body with a meaningful real body.
+        star_near_low = float(np.min(l[-3:])) <= float(np.min(l[-23:-3]))*1.015
+        star_prior_decline = c[-4] <= c[-12]*.965
+        star_first_bear = c[-3] < o[-3] and b0 >= (h[-3]-l[-3])*.45
+        star_small = b1 <= b0*.40
+        star_confirm = (cl > op and b2 >= b0*.55
+                        and cl > (o[-3]+c[-3])/2 and cl > max(o[-2],c[-2]))
+        if (star_first_bear and star_small and star_confirm
+                and star_near_low and star_prior_decline):
+            add("bottom", "晨星三 K 確認", 62,
+                "下跌近低點出現長黑 K、小實體止跌 K、紅 K 收復第一根實體中點",
+                "三 K 確認")
         if c[-3] > o[-3] and cl < op and cl < (o[-3]+c[-3])/2 and near_top:
             add("top", "夜星三 K 反轉", 47, "長紅 K、小實體、黑 K 跌破第一根實體中點")
     if lo < r20_low*.992 and cl > r20_low*1.004 and cl > op:
@@ -367,13 +389,15 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
                     partial, enabled_categories=enabled_categories, ma_windows=ma_windows):
                 # Show this breakout only when it is the most recent
                 # completed trading day, ready for next-session review.
-                if name == "錘頭隔日突破・第三日觀察" and age != 0:
+                if name in ("錘頭隔日突破・第三日觀察",
+                            "低點止跌後突破", "晨星三 K 確認") and age != 0:
                     continue
                 # Strict hammer scan: the bottom list must not contain
                 # unrelated MA, engulfing or unconfirmed reversal signals.
                 # Top-side screening is unchanged.
                 if hammer_only_bottom and side == "bottom" and name not in (
-                        "錘頭隔日突破・第三日觀察", "低點止跌後突破"):
+                        "錘頭隔日突破・第三日觀察", "低點止跌後突破",
+                        "晨星三 K 確認"):
                     continue
                 # An optional rebound is included only when its category is
                 # independently selected in the UI; hammer-only remains the default.
