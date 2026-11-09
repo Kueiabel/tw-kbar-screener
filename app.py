@@ -491,40 +491,38 @@ with search_panel:
         help='勾選後，只保留最新收盤價高於最近五根 K 棒收盤均價的股票。日 K 是五日線；週 K 是五週線。這是價格位置條件，不是黃金交叉。')
     st.caption('日 K＝站上五日線；週 K＝站上五週線。可自行勾選，不影響其他型態設定。')
     st.markdown('**搜尋訊號（可複選）**')
-    select_kbar = st.checkbox('K 棒頂部／底部反轉', value=True)
-    hammer_only_bottom = st.checkbox(
-        '底部只看低點突破與錘頭突破（建議）',
+    st.caption('預設只搜尋「晨星三 K 確認」；以下其他型態均為選用。')
+    select_morning = st.checkbox(
+        '晨星反轉（三根 K：長黑 → 小實體止跌 → 紅 K 確認）',
         value=True,
-        help='嚴格模式僅列入低點止跌後突破、錘頭隔日突破及已確認晨星三 K。不會混入均線、KD 或其他非突破型態。')
-    low_rebound = st.checkbox(
-        '低點止跌後突破（主要標準）',
-        value=True,
-        help='下跌後近 15 日低點不再被跌破，隨後 1～4 個交易日紅 K 首次收盤突破低點那根 K 棒的最高價至少 0.3%。不是保證起漲。')
-    if hammer_only_bottom:
-        st.caption('優先搜尋：下跌形成低點 → 守住低點 → 紅 K 收盤突破；另包含錘頭隔日突破、確認晨星三 K。其他訊號不混入底部榜單。')
-
-    select_ma = st.checkbox('均線突破／跌破', value=True)
+        help='下跌近低檔，第一根黑 K、第二根小實體、第三根紅 K 收盤站上第一根 K 棒實體中點；搜尋最近 1～5 根 K 的確認訊號。')
+    select_hammer = st.checkbox('錘頭隔日突破', value=False,
+        help='下跌後長下影錘頭，下一根紅 K 收盤突破錘頭最高價 0.3% 以上。')
+    low_rebound = st.checkbox('低點止跌後突破', value=False,
+        help='下跌後形成近 20 期低點，隨後紅 K 突破止跌區間高點。')
+    select_kbar = st.checkbox('其他 K 棒反轉型態（含頂部）', value=False)
+    select_ma = st.checkbox('股價突破／跌破均線 MA5、10、20、52', value=False)
     include_wm = st.checkbox('W 底／M 頭', value=False)
-    st.caption('更多常用訊號（選填，預設不啟用）')
-    extra_signals = st.multiselect('加選常用技術訊號',
+    extra_signals = st.multiselect(
+        '更多技術訊號（選填）',
         options=['MACD 交叉', 'KD 交叉', 'RSI 回升／轉弱'],
         default=[],
-        help='MACD 12/26/9、KD 9/3/3、RSI 14，皆以盤後日 K 計算。')
+        help='勾選後才會加入篩選；不會自動啟用。')
     targets = []
+    if select_morning:
+        targets.append('晨星反轉')
+    if select_hammer:
+        targets.append('錘頭隔日突破')
+    if low_rebound:
+        targets.append('低點止跌突破')
     if select_kbar:
         targets.append('K 棒反轉')
     if select_ma:
         targets.append('均線突破／跌破')
     if include_wm:
         targets.append('W 底／M 頭')
-    if low_rebound:
-        targets.append('低點止跌突破')
     targets.extend(extra_signals)
-    # Keep the original MA5/10/20/52 price-breakout logic and defaults,
-    # while avoiding an unnecessary advanced period selector on mobile.
     ma_windows = [5, 10, 20, 52]
-    if select_ma:
-        st.caption('股價突破／跌破均線：固定 MA5、MA10、MA20、MA52；非均線黃金交叉。')
     # Avoid nesting expanders: Streamlit does not support an expander inside another.
     advanced_panel = (st.container() if 'results' in st.session_state
                       else st.expander('更多設定：訊號天數'))
@@ -548,7 +546,7 @@ if run:
         "min_money": min_money, "min_price": min_price,
         "max_price": max_price,
         "targets": list(targets), "ma_windows": list(ma_windows),
-        "hammer_only_bottom": hammer_only_bottom,
+        "hammer_only_bottom": False,
         "require_above_ma5": require_above_ma5,
         "signal_days": signal_days, "history_days": history_days,
     }
@@ -589,10 +587,7 @@ if 'results' in st.session_state:
     )
     st.markdown('<div class="qs-stats">' + stat_html + '</div>',
                 unsafe_allow_html=True)
-    strict = r['criteria'].get('hammer_only_bottom', False)
-    st.caption(('底部榜單以低點突破、錘頭隔日突破與確認晨星三 K 為主。' if strict
-                else '底部榜單包含所有勾選的反轉型態。')
-               + f' 名單使用盤後{frame_label}；評分不是勝率。')
+    st.caption(f'只依勾選的訊號搜尋盤後{frame_label}；預設為晨星三 K 確認。評分不是勝率。')
     tabs=st.tabs(['底部候選 Top 25','頂部候選 Top 25','判斷規則'])
     with tabs[0]:
         render_rankings(r['bottom'],'bottom',r['data'],effective_date,
@@ -604,7 +599,8 @@ if 'results' in st.session_state:
         st.markdown('''
 **判斷型態**
 
-- **底部：** 錘頭隔日突破（首日錘頭、次日紅 K 收盤突破錘頭最高價至少 0.3%，次日盤後列入榜單供第三日參考）、「低點止跌後突破」（預設勾選，不要求標準錘頭）、多頭吞噬、晨星三 K、跌破前低後收回、局部低點二 K 確認、W 底雛形／突破頸線、20 日區間向上突破。
+- **底部預設：** 晨星三 K 確認（下跌後長黑 K、小實體止跌 K、紅 K 收復首根實體中點）。搜尋最近選定的訊號天數；不保證每日都會出現。
+- **底部其他可選：** 錘頭隔日突破、低點止跌後突破、其他 K 棒反轉、W 底／M 頭、均線及 MACD／KD／RSI。未勾選時不參與搜尋。
 - **頂部：** 流星線（長上影）、空頭吞噬、夜星三 K、突破前高後跌回、局部高點二 K 確認、M 頭雛形／跌破頸線、20 日區間向下跌破。
 - **評分：** 型態基本分＋流動性＋訊號日量比＋均線位置／方向－訊號距今交易日的時間折減，最高 100 分。分數不能解讀為上漲或下跌的機率。
 - **榜單：** 每檔最多入選一次，採用該檔最符合條件的訊號。只有符合條件才列入，可能不足 25 檔。
