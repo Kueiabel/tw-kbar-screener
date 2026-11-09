@@ -397,7 +397,12 @@ with search_panel:
         ma_windows = selected_ma
         if not ma_windows:
             st.warning('使用均線搜尋時，請至少選擇一個 MA 週期。')
-    with st.expander('更多設定：訊號天數'):
+    # Avoid nesting expanders: Streamlit does not support an expander inside another.
+    advanced_panel = (st.container() if 'results' in st.session_state
+                      else st.expander('更多設定：訊號天數'))
+    with advanced_panel:
+        if 'results' in st.session_state:
+            st.caption('進階設定 · 訊號天數')
         signal_days = st.select_slider('最近幾個交易日出現訊號',
             options=[1,2,3,4,5],value=3)
         history_days = st.slider('歷史回溯天數',120,250,165,5)
