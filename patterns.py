@@ -168,6 +168,54 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
                 add("top", f"跌破 MA{period}", 30 if period < 20 else 36,
                     f"收盤價由均線上方跌破 MA{period} ({ma_now:.2f})；不代表一定見頂",
                     category="均線突破／跌破")
+    # Optional popular indicators. They are all OFF by default in the UI.
+    # MACD 12/26/9: crossover of DIF and signal line, not a price/MA crossover.
+    if "MACD 交叉" in allowed and len(c) >= 55:
+        close_s = pd.Series(c)
+        dif = (close_s.ewm(span=12, adjust=False).mean()
+               - close_s.ewm(span=26, adjust=False).mean())
+        dea = dif.ewm(span=9, adjust=False).mean()
+        if dif.iloc[-2] <= dea.iloc[-2] and dif.iloc[-1] > dea.iloc[-1]:
+            add("bottom", "MACD 黃金交叉", 36,
+                "DIF 由下往上穿越 MACD 訊號線（12/26/9）",
+                category="MACD 交叉")
+        if dif.iloc[-2] >= dea.iloc[-2] and dif.iloc[-1] < dea.iloc[-1]:
+            add("top", "MACD 死亡交叉", 36,
+                "DIF 由上往下跌破 MACD 訊號線（12/26/9）",
+                category="MACD 交叉")
+    # KD 9/3/3: focus on crosses in the weaker/stronger half.
+    if "KD 交叉" in allowed and len(c) >= 36:
+        low9 = pd.Series(l).rolling(9, min_periods=9).min()
+        high9 = pd.Series(h).rolling(9, min_periods=9).max()
+        rsv = ((pd.Series(c) - low9) / (high9 - low9).replace(0, np.nan)
+               * 100).fillna(50)
+        kval = rsv.ewm(alpha=1/3, adjust=False).mean()
+        dval = kval.ewm(alpha=1/3, adjust=False).mean()
+        if (kval.iloc[-2] <= dval.iloc[-2] and kval.iloc[-1] > dval.iloc[-1]
+                and kval.iloc[-1] <= 50):
+            add("bottom", "KD 低檔黃金交叉", 35,
+                "9 日 KD 的 K 值向上穿越 D 值，且 K 值不高於 50",
+                category="KD 交叉")
+        if (kval.iloc[-2] >= dval.iloc[-2] and kval.iloc[-1] < dval.iloc[-1]
+                and kval.iloc[-1] >= 50):
+            add("top", "KD 高檔死亡交叉", 35,
+                "9 日 KD 的 K 值向下跌破 D 值，且 K 值不低於 50",
+                category="KD 交叉")
+    # RSI (14): trigger only on exiting oversold/overbought territory.
+    if "RSI 回升／轉弱" in allowed and len(c) >= 40:
+        changes = pd.Series(c).diff()
+        avg_gain = changes.clip(lower=0).ewm(alpha=1/14, adjust=False).mean()
+        avg_loss = (-changes.clip(upper=0)).ewm(alpha=1/14, adjust=False).mean()
+        rs = avg_gain / avg_loss.replace(0, np.nan)
+        rsi = (100 - 100 / (1 + rs)).fillna(100)
+        if rsi.iloc[-2] <= 30 < rsi.iloc[-1]:
+            add("bottom", "RSI 脫離超賣", 35,
+                "14 日 RSI 由 30 以下回升至 30 以上，仍需其他條件驗證",
+                category="RSI 回升／轉弱")
+        if rsi.iloc[-2] >= 70 > rsi.iloc[-1]:
+            add("top", "RSI 脫離超買", 35,
+                "14 日 RSI 由 70 以上回落至 70 以下，仍需其他條件驗證",
+                category="RSI 回升／轉弱")
     # Confirmed swing: pivot is two bars ago; signal date = confirmation day.
     if len(df) >= 35:
         test_l = l[-3]
