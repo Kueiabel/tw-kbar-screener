@@ -28,7 +28,8 @@ html, body, .stApp, [data-testid="stAppViewContainer"],
   -webkit-font-smoothing:antialiased;
   text-rendering:optimizeLegibility;
 }
-.block-container{padding-top:1.15rem;max-width:1100px;padding-bottom:3rem;}
+/* Keep content below Streamlit's fixed toolbar, including iPhone home-screen mode. */
+.block-container{padding-top:3.5rem !important;max-width:1100px;padding-bottom:3rem;}
 h1,h2,h3{overflow-wrap:anywhere;letter-spacing:.018em !important;line-height:1.42 !important;}
 h1{font-size:1.95rem;font-weight:610 !important;}
 h2{font-weight:590 !important;}
@@ -55,7 +56,7 @@ div[data-testid="stMetric"]{border:1px solid rgba(128,128,128,.16);padding:.65re
 [data-testid="stDataFrame"]{max-width:100%;overflow:hidden;}
 [data-testid="stTabs"] button{font-weight:520;letter-spacing:.008em;}
 @media(max-width:640px){
-  .block-container{padding:1rem .85rem 5rem !important;max-width:100% !important;}
+  .block-container{padding:5.75rem .85rem 5rem !important;max-width:100% !important;}
   h1{font-size:clamp(1.35rem,5.6vw,1.78rem) !important;line-height:1.39 !important;}
   h2{font-size:1.23rem !important;}
   h3{font-size:1.08rem !important;}
