@@ -18,85 +18,48 @@ import streamlit as st
 from patterns import screen
 from twse_source import ensure_history, load_companies, open_db, today_taiwan
 
-st.set_page_config(page_title="台股 K 棒頂底搜尋器", page_icon="📊", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="台股 K 棒快速篩選", page_icon="📈", layout="wide", initial_sidebar_state="collapsed")
 st.markdown("""
 <style>
-/* Soft Apple-style Traditional Chinese typography, no external font downloads. */
-html, body, .stApp, [data-testid="stAppViewContainer"],
-[data-testid="stMarkdownContainer"], button, input, textarea {
-  font-family:"PingFang TC","SF Pro Text",-apple-system,BlinkMacSystemFont,
-              "Noto Sans TC","Microsoft JhengHei",sans-serif !important;
-  -webkit-font-smoothing:antialiased;
-  text-rendering:optimizeLegibility;
+/* Native Streamlit theme handles light-background and text contrast. */
+html,body,.stApp,[data-testid="stAppViewContainer"],
+[data-testid="stMarkdownContainer"],button,input,textarea{
+ font-family:"PingFang TC",-apple-system,BlinkMacSystemFont,"Noto Sans TC","Microsoft JhengHei",sans-serif !important;
+ -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
 }
-/* Keep content below Streamlit's fixed toolbar, including iPhone home-screen mode. */
-.block-container{padding-top:3.5rem !important;max-width:1100px;padding-bottom:3rem;}
-h1,h2,h3{overflow-wrap:anywhere;letter-spacing:.018em !important;line-height:1.42 !important;}
-h1{font-size:1.95rem;font-weight:610 !important;}
-h2{font-weight:590 !important;}
-h3{font-weight:570 !important;}
-p,li{line-height:1.68;letter-spacing:.012em;}
-[data-testid="stCaptionContainer"] p{line-height:1.62;color:inherit;}
-[data-testid="stWidgetLabel"] p{font-weight:480 !important;letter-spacing:.012em;}
-.stButton>button, [data-testid="stBaseButton-primary"]{
-  border-radius:14px !important;
-  font-weight:560 !important;
-  letter-spacing:.025em;
-  min-height:2.85rem;
-}
-[data-testid="stTextInput"] input,
-[data-testid="stNumberInput"] input,
-[data-testid="stDateInput"] input {
-  border-radius:11px;
-  font-weight:440;
-}
+.block-container{max-width:980px;padding-top:3.6rem !important;padding-bottom:4rem;}
+h1,h2,h3{letter-spacing:.005em !important;line-height:1.42 !important;}
+h1{font-size:1.83rem !important;font-weight:620 !important;}
+h2{font-weight:610 !important;}h3{font-weight:580 !important;}
+p,li{line-height:1.58;}
+[data-testid="stWidgetLabel"] p{font-weight:540 !important;}
+.stButton>button{border-radius:13px !important;font-weight:620 !important;min-height:3rem;}
+[data-testid="stTextInput"] input,[data-testid="stNumberInput"] input,
+[data-testid="stDateInput"] input{border-radius:11px !important;}
 div[data-testid="stAlert"]{border-radius:14px;}
-div[data-testid="stMetric"]{border:1px solid rgba(128,128,128,.16);padding:.65rem .8rem;border-radius:14px;}
-[data-testid="stMetricLabel"]{font-weight:460;}
-[data-testid="stMetricValue"]{font-weight:590;}
-[data-testid="stDataFrame"]{max-width:100%;overflow:hidden;}
-[data-testid="stTabs"] button{font-weight:520;letter-spacing:.008em;}
-@media(max-width:640px){
-  .block-container{padding:5.75rem .85rem 5rem !important;max-width:100% !important;}
-  h1{font-size:clamp(1.35rem,5.6vw,1.78rem) !important;line-height:1.39 !important;}
-  h2{font-size:1.23rem !important;}
-  h3{font-size:1.08rem !important;}
-  p,li{overflow-wrap:anywhere;line-height:1.63;}
-  [data-testid="stMetricValue"]{font-size:1.24rem !important;}
-  [data-testid="stMetricLabel"]{font-size:.8rem !important;}
-  [data-testid="stHorizontalBlock"]{gap:.65rem;}
-  [data-testid="stVerticalBlock"]{gap:.62rem;}
-  [data-testid="stPlotlyChart"]{max-width:100%;overflow:hidden;}
-  [data-testid="stTabs"] button{font-size:.82rem;white-space:nowrap;}
-  [data-testid="stWidgetLabel"] p{font-size:.9rem;}
-  div[data-testid="stMetric"]{padding:.54rem .68rem;}
+div[data-testid="stMetric"]{border:1px solid rgba(95,115,140,.18);border-radius:14px;padding:.68rem .86rem;}
+[data-testid="stMetricValue"]{font-weight:640 !important;}
+[data-testid="stDataFrame"]{max-width:100%;overflow:hidden;border-radius:12px;}
+[data-testid="stTabs"] button{font-weight:600;white-space:nowrap;}
+div[data-testid="stExpander"]>details{
+ border:1.5px solid rgba(37,99,235,.36) !important;border-radius:14px !important;
+ background:rgba(37,99,235,.035) !important;
 }
-
-/* Make refresh and re-screen actions clear without altering the theme. */
-button[kind="primary"]{
-  font-weight:700 !important;
-  border-radius:12px !important;
-  min-height:3rem !important;
-}
-div[data-testid="stExpander"] > details {
-  border:2px solid rgba(58,153,255,.85) !important;
-  border-radius:14px !important;
-  background:rgba(58,153,255,.09) !important;
-}
-div[data-testid="stExpander"] > details > summary {
-  padding:.85rem .95rem !important;
-  font-size:1rem !important;
-  font-weight:700 !important;
-  letter-spacing:.02em !important;
-}
-div[data-testid="stExpander"] > details > summary:hover{
-  background:rgba(58,153,255,.14) !important;
+div[data-testid="stExpander"]>details>summary{
+ padding:.82rem .92rem !important;font-size:1rem !important;font-weight:660 !important;
 }
 @media(max-width:640px){
-  button[kind="primary"] { min-height:3.25rem !important; }
-  div[data-testid="stExpander"] > details > summary{
-    padding:1rem .85rem !important;
-  }
+ .block-container{max-width:100% !important;padding:5.65rem .88rem 5rem !important;}
+ h1{font-size:clamp(1.35rem,5.4vw,1.74rem) !important;}
+ h2{font-size:1.19rem !important;}h3{font-size:1.05rem !important;}
+ [data-testid="stMetricValue"]{font-size:1.24rem !important;}
+ [data-testid="stMetricLabel"]{font-size:.8rem !important;}
+ [data-testid="stHorizontalBlock"]{gap:.55rem;}
+ [data-testid="stVerticalBlock"]{gap:.60rem;}
+ [data-testid="stPlotlyChart"]{max-width:100%;overflow:hidden;}
+ .stButton>button{min-height:3.2rem !important;}
+ div[data-testid="stMetric"]{padding:.53rem .68rem;}
+ div[data-testid="stExpander"]>details>summary{padding:1rem .85rem !important;}
 }
 </style>
 """, unsafe_allow_html=True)
@@ -119,8 +82,7 @@ def show_online_count():
             del sessions[sid]
         sessions[st.session_state["_presence_id"]] = now
         count = len(sessions)
-    st.caption(f"🟢 目前約 {count:,} 人在線 · 每 30 秒更新")
-    st.caption("最近 90 秒有活動的瀏覽工作階段估算，不收集姓名或 IP。")
+    st.caption(f"約 {count:,} 個活躍瀏覽工作階段 · 最近 90 秒估算，非精確訪客數")
 
 
 # Sponsor details must be entered only after a real partnership is approved.
@@ -196,8 +158,8 @@ def render_waiting_ad():
         finally:
             st.session_state.pop("scan_future", None)
         st.rerun(scope="app")
-    st.subheader("看個廣告，稍後一下，正在搜尋")
-    st.caption("正在比對台灣上市股票行情，完成後立即顯示搜尋結果。")
+    st.subheader("正在篩選股票，請稍候")
+    st.caption("依照已選條件比對盤後行情，完成後立即顯示候選股票。")
     with st.container(border=True):
         st.caption("品牌贊助展示區 · 此處不載入 Google AdSense")
         if SPONSOR["image_url"]:
@@ -207,7 +169,7 @@ def render_waiting_ad():
         if SPONSOR["landing_url"]:
             st.link_button("了解贊助內容", SPONSOR["landing_url"],
                            use_container_width=True)
-    st.info("⏳ 正在取得盤後行情並比對技術型態… 無須點擊廣告。")
+    st.info("搜尋完成後自動顯示結果；無須點擊廣告。")
     st.caption("首次下載歷史資料可能較久，請保持網頁開啟。")
 
 
@@ -274,7 +236,7 @@ def render_chart(bars: pd.DataFrame, item, side: str):
             arrowcolor=up if side=='top' else down,arrowhead=2,arrowsize=1.2,arrowwidth=2,
             ax=0,ay=axy,showarrow=True,row=1,col=1,bgcolor='rgba(255,255,255,.78)',borderpad=3)
         fig.add_vline(x=x.index(date),line_dash='dot',line_color='#919191',opacity=.35,row=1,col=1)
-    fig.update_layout(height=565,margin=dict(t=15,b=25,r=18,l=15),
+    fig.update_layout(template="plotly_white",height=500,margin=dict(t=15,b=25,r=18,l=15),
        xaxis_rangeslider_visible=False,legend=dict(orientation='h',y=1.07,x=0),
        hovermode='x unified',plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)')
     fig.update_xaxes(type='category',tickangle=-40,nticks=12,showgrid=False)
@@ -310,30 +272,31 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame, eff
                 '漲跌幅 %',format='%.2f')})
     st.download_button('⬇ 下載此榜單 CSV（Excel 可開啟）',data=to_csv(frame),
         file_name=f'TWSE_{side}_{effective_date}.csv',mime='text/csv',key=f'download_{side}')
-    st.divider()
-    st.subheader('查看股票 K 線與訊號位置')
-    choices = list(range(len(frame)))
-    selected = st.selectbox('選擇排行股票',choices,
-        format_func=lambda i: f"#{i+1:02d}  {frame.iloc[i]['code']} {frame.iloc[i]['name']}｜{frame.iloc[i]['pattern']}",
-        key=f'select_{side}')
-    rec = frame.iloc[selected]
-    a,b = st.columns(2)
-    a.metric('收盤',f"{rec['close']:.2f} 元",f"{rec['change_pct']:+.2f}%")
-    b.metric('型態分數',f"{rec['score']}/100")
-    c,d = st.columns(2)
-    c.metric('20 日均成交額',f"{rec['avg_turnover_100m']:.2f} 億")
-    d.metric('訊號日期',str(rec['signal_date']))
-    st.markdown(f"**{rec['code']} {rec['name']}**　｜　產業：**{rec.get('industry','未分類')}**")
-    st.markdown(f"**{rec['pattern']}**　｜　{rec['stage']}　｜　{rec['explanation']}")
-    render_chart(full_data,rec,side)
-    st.caption('標記位置為型態「辨識／確認」日期，不一定是實際高低點當天。紅 K 為上漲、綠 K 為下跌。52 日均線在資料不足時不顯示。')
+    with st.expander('需要驗證？展開個股 K 線與訊號說明', expanded=False):
+        st.divider()
+        st.subheader('查看股票 K 線與訊號位置')
+        choices = list(range(len(frame)))
+        selected = st.selectbox('選擇排行股票',choices,
+            format_func=lambda i: f"#{i+1:02d}  {frame.iloc[i]['code']} {frame.iloc[i]['name']}｜{frame.iloc[i]['pattern']}",
+            key=f'select_{side}')
+        rec = frame.iloc[selected]
+        a,b = st.columns(2)
+        a.metric('收盤',f"{rec['close']:.2f} 元",f"{rec['change_pct']:+.2f}%")
+        b.metric('型態分數',f"{rec['score']}/100")
+        c,d = st.columns(2)
+        c.metric('20 日均成交額',f"{rec['avg_turnover_100m']:.2f} 億")
+        d.metric('訊號日期',str(rec['signal_date']))
+        st.markdown(f"**{rec['code']} {rec['name']}**　｜　產業：**{rec.get('industry','未分類')}**")
+        st.markdown(f"**{rec['pattern']}**　｜　{rec['stage']}　｜　{rec['explanation']}")
+        render_chart(full_data,rec,side)
+        st.caption('標記位置為型態「辨識／確認」日期，不一定是實際高低點當天。紅 K 為上漲、綠 K 為下跌。52 日均線在資料不足時不顯示。')
 
 
 # Mobile home-screen users have no obvious browser refresh control.
 # This reruns the Streamlit page without interrupting an active scan.
 header_main, header_refresh = st.columns([5, 2], vertical_alignment="center")
 with header_main:
-    st.title('📊 台股 K 棒搜尋器')
+    st.title('台股 K 棒快速篩選')
 with header_refresh:
     if st.button('🔄 更新畫面', key='refresh_page', type='primary',
                  use_container_width=True,
@@ -346,7 +309,7 @@ if "scan_future" in st.session_state:
     st.stop()
 
 show_online_count()
-st.caption('台灣上市普通股｜可選搜尋條件：K 棒反轉、均線突破／跌破、W 底／M 頭｜頂底各 Top 25')
+st.caption('台灣上市普通股 · 盤後日 K · 找出候選股票後，再自行驗證')
 if "scan_error" in st.session_state:
     st.error("搜尋中斷：" + st.session_state.pop("scan_error"))
 
@@ -354,8 +317,8 @@ if "scan_error" in st.session_state:
 # When results exist, collapse it by default so the rankings remain visible
 # without a long scroll on iPhone home-screen mode.
 if 'results' in st.session_state:
-    st.markdown('**👇 想重新選股？請點下方「調整搜尋條件」展開。**')
-search_panel = (st.expander('🔎 調整搜尋條件・重新搜尋（點此展開）', expanded=False)
+    st.caption('要重新選股？展開下方條件即可調整。')
+search_panel = (st.expander('🔎 調整條件・重新選股', expanded=False)
                 if 'results' in st.session_state else st.container(border=True))
 with search_panel:
     st.subheader('🔎 搜尋條件')
@@ -392,10 +355,15 @@ with search_panel:
         price_error = '股價請輸入有效數字（例如 30、150.5），也可以留白。'
     if price_error:
         st.error(price_error)
-    st.markdown('**選擇搜尋型態（可複選）**')
+    st.markdown('**搜尋訊號（可複選）**')
     select_kbar = st.checkbox('K 棒頂部／底部反轉', value=True)
     select_ma = st.checkbox('均線突破／跌破', value=True)
     include_wm = st.checkbox('W 底／M 頭', value=False)
+    st.caption('更多常用訊號（選填，預設不啟用）')
+    extra_signals = st.multiselect('加選常用技術訊號',
+        options=['MACD 交叉', 'KD 交叉', 'RSI 回升／轉弱'],
+        default=[],
+        help='MACD 12/26/9、KD 9/3/3、RSI 14，皆以盤後日 K 計算。')
     targets = []
     if select_kbar:
         targets.append('K 棒反轉')
@@ -403,6 +371,7 @@ with search_panel:
         targets.append('均線突破／跌破')
     if include_wm:
         targets.append('W 底／M 頭')
+    targets.extend(extra_signals)
     ma_windows = [5, 10, 20, 52]
     if select_ma:
         selected_ma = st.multiselect('均線週期（可複選）', options=ma_windows,
@@ -422,9 +391,9 @@ with search_panel:
     valid_targets = bool(targets) and (not select_ma or bool(ma_windows)) and price_error is None
     if not targets:
         st.warning('請至少勾選一種搜尋型態。')
-    run = st.button('🔍 開始搜尋上市股票',type='primary',
+    run = st.button('開始篩選股票',type='primary',
         use_container_width=True, disabled=not valid_targets)
-    st.caption('搜尋時同步顯示贊助內容，行情分析完成即呈現結果。')
+    st.caption('盤後日 K 篩選僅提供候選清單，非買賣建議。')
 
 if run:
     criteria = {
