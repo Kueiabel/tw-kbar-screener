@@ -136,6 +136,47 @@ def _search_pool():
     return {"executor": ThreadPoolExecutor(max_workers=2), "lock": Lock()}
 
 
+def weekly_bars_from_daily(daily: pd.DataFrame, latest_date: str) -> tuple[pd.DataFrame, str]:
+    """Build completed weekly OHLCV from official TWSE daily bars, never synthetic minute bars.
+
+    Current Mon-Thu week is excluded; a Friday date can only be used after
+    the TWSE daily closing prices are published.
+    """
+    daily = daily.copy()
+    dates = pd.to_datetime(daily['date'])
+    weeks = dates.dt.to_period('W-FRI')
+    latest = pd.Timestamp(latest_date)
+    # The week containing latest_date is usable only when Friday's complete
+    # daily bar is available. Otherwise use the last completed Friday week.
+    newest_period = latest.to_period('W-FRI')
+    if latest.weekday() != 4:
+        daily = daily[weeks < newest_period].copy()
+        weeks = weeks[weeks < newest_period]
+    if daily.empty:
+        raise ValueError('目前沒有完整的週 K 資料，請改用日 K。')
+    daily['_week'] = weeks.astype(str)
+    weekly = (daily.sort_values(['code','date'])
+              .groupby(['code','_week'], sort=False)
+              .agg(date=('date','last'), name=('name','last'),
+                   open=('open','first'), high=('high','max'),
+                   low=('low','min'), close=('close','last'),
+                   shares=('shares','sum'), turnover=('turnover','sum'))
+              .reset_index().drop(columns='_week'))
+    return weekly, str(weekly.date.max())
+
+
+def daily_liquidity_for_week(daily: pd.DataFrame, weekly_date: str) -> dict:
+    """Same 20-TRADING-DAY liquidity threshold used by daily screening."""
+    actual = daily[daily.date <= weekly_date].sort_values(['code','date'])
+    values = {}
+    for code, grp in actual.groupby('code', sort=False):
+        latest = grp.tail(20)
+        if len(latest) == 20 and latest.date.iloc[-1] == weekly_date:
+            values[code] = (float(latest.shares.mean()),
+                            float(latest.turnover.mean()))
+    return values
+
+
 def run_stock_scan(opts):
     """Run I/O and computation off the UI thread; no Streamlit calls here."""
     pool = _search_pool()
@@ -147,28 +188,42 @@ def run_stock_scan(opts):
                 companies = load_companies(db, session)
                 industry_map = dict(db.execute(
                     "SELECT code,industry FROM listed_companies"))
+                days = max(opts["history_days"], 420) if opts["timeframe"] == "W" else opts["history_days"]
                 info = ensure_history(
-                    db, session, opts["query_date"], opts["history_days"],
+                    db, session, opts["query_date"], days,
                     progress=None, throttle=.85)
+            search_data = info["data"]
+            search_date = info["effective_date"]
+            liquidity = None
+            required_bars = 65
+            if opts["timeframe"] == "W":
+                search_data, search_date = weekly_bars_from_daily(search_data, search_date)
+                liquidity = daily_liquidity_for_week(info["data"], search_date)
+                required_bars = 55
             bottom, top, diag, covered = screen(
-                info["data"], companies, info["effective_date"],
+                search_data, companies, search_date,
                 min_vol_lots=opts["min_vol"],
                 min_turnover_100m=opts["min_money"],
                 min_price=opts["min_price"], max_price=opts["max_price"],
                 signal_days=opts["signal_days"],
                 top_n=25, enabled_categories=opts["targets"],
                 ma_windows=opts["ma_windows"],
-                hammer_only_bottom=opts["hammer_only_bottom"])
+                hammer_only_bottom=opts["hammer_only_bottom"],
+                min_history_bars=required_bars,
+                daily_liquidity=liquidity)
             for ranking in (bottom, top):
                 if not ranking.empty:
                     ranking["industry"] = ranking["code"].map(
                         industry_map).fillna("未分類")
             return {
                 "bottom": bottom, "top": top, "diag": diag,
-                "info": {k:v for k,v in info.items() if k != "data"},
+                "info": {**{k:v for k,v in info.items() if k != "data"},
+                         "effective_date": search_date,
+                         "history_sessions": int(search_data['date'].nunique())},
                 "data": covered,
                 "criteria": {
                     "date": str(opts["query_date"]),
+                    "timeframe": opts["timeframe"],
                     "min_vol": opts["min_vol"],
                     "min_money": opts["min_money"],
                     "min_price": opts["min_price"],
@@ -384,6 +439,18 @@ search_panel = (st.expander('🔎 調整條件・重新選股', expanded=False)
 with search_panel:
     st.subheader('設定篩選條件')
     st.caption('使用預設條件即可搜尋；需要時再調整。')
+    frame_choice = st.selectbox('K 線搜尋週期', [
+        '日 K', '週 K',
+        '3 分 K（資料來源待授權）', '5 分 K（資料來源待授權）',
+        '15 分 K（資料來源待授權）', '30 分 K（資料來源待授權）',
+        '60 分 K（資料來源待授權）'
+    ], index=0, help='日 K 為預設，週 K 使用證交所每日盤後資料合成完整週 K。分 K 資料未經授權前不啟用搜尋。')
+    timeframe = 'W' if frame_choice == '週 K' else 'D'
+    minute_unavailable = '分 K' in frame_choice
+    if minute_unavailable:
+        st.warning('分 K 選項已列出，但目前尚無獲准用於公開商業網站的分鐘行情來源，暫不能搜尋；請先選日 K 或週 K。')
+    elif timeframe == 'W':
+        st.caption('週 K 僅使用已完成交易週；預設流動性仍以近 20 個「交易日」計算。首次搜尋需下載較長的歷史資料。')
     c_date, c_volume = st.columns(2)
     with c_date:
         query_date = st.date_input('查詢日期', value=last_weekday(),
@@ -463,7 +530,8 @@ with search_panel:
         signal_days = st.select_slider('最近幾個交易日出現訊號',
             options=[1,2,3,4,5],value=3)
         history_days = st.slider('歷史回溯天數',120,250,165,5)
-    valid_targets = bool(targets) and (not select_ma or bool(ma_windows)) and price_error is None
+    valid_targets = (bool(targets) and (not select_ma or bool(ma_windows))
+                     and price_error is None and not minute_unavailable)
     if not targets:
         st.warning('請至少勾選一種搜尋型態。')
     run = st.button('開始篩選股票',type='primary',
@@ -472,7 +540,8 @@ with search_panel:
 
 if run:
     criteria = {
-        "query_date": query_date, "min_vol": min_vol,
+        "query_date": query_date, "timeframe": timeframe,
+        "min_vol": min_vol,
         "min_money": min_money, "min_price": min_price,
         "max_price": max_price,
         "targets": list(targets), "ma_windows": list(ma_windows),
@@ -489,9 +558,10 @@ if 'results' in st.session_state:
     effective_date=r['info']['effective_date']
     if effective_date != r['criteria']['date']:
         st.warning(f"選擇 {r['criteria']['date']}，該日無完整盤後行情；實際採用 **{effective_date}** 交易日資料。")
+    frame_label = '週 K' if r['criteria'].get('timeframe') == 'W' else '日 K'
     st.markdown(
         '<div class="qs-summary">'
-        '<div class="qs-summary-label">篩選完成 · 盤後日 K</div>'
+        f'<div class="qs-summary-label">篩選完成 · 盤後{frame_label}</div>'
         f'<div class="qs-summary-date">資料截至 {escape(str(effective_date))}</div>'
         f'<div class="qs-summary-note">歷史資料 {r["info"]["history_sessions"]:,} 個交易日 · '
         f'上市名冊 {r["diag"]["listed"]:,} 檔</div>'
@@ -515,7 +585,7 @@ if 'results' in st.session_state:
     strict = r['criteria'].get('hammer_only_bottom', False)
     st.caption(('底部榜單以低點止跌後突破及錘頭隔日突破為主。' if strict
                 else '底部榜單包含所有勾選的反轉型態。')
-               + ' 名單使用盤後日 K；評分不是勝率。')
+               + f' 名單使用盤後{frame_label}；評分不是勝率。')
     tabs=st.tabs(['底部候選 Top 25','頂部候選 Top 25','判斷規則'])
     with tabs[0]:
         render_rankings(r['bottom'],'bottom',r['data'],effective_date)
@@ -539,7 +609,7 @@ if 'results' in st.session_state:
 5. 流動性門檻是近 20 日的平均量與成交金額，不保證任何時刻都能以理想價格成交。
 6. 歷史數據保存在程式資料夾的 `data/twse_cache.sqlite3`，不需上傳至第三方雲端平台。
         ''')
-    st.caption('本工具僅供研究與選股輔助，不構成投資建議。')
+    st.caption('本工具僅供研究與選股輔助，不構成投資建議。週 K 使用完整交易週，不包含本週尚未結束的 K 棒。')
     # Reserved for future approved advertising, outside the quick-result area.
     with st.expander('廣告合作資訊', expanded=False):
         st.caption('Google AdSense 尚未啟用；通過審核後才會顯示正式廣告。')
