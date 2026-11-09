@@ -88,6 +88,7 @@ div[data-testid="stExpander"]>details>summary{
 .qs-stock-code{font-size:.78rem;font-weight:600;color:#64748b;margin-right:.42rem;}
 .qs-stock-score{font-size:.83rem;font-weight:760;color:#2563eb;white-space:nowrap;}
 .qs-stock-bottom{font-size:.8rem;color:#64748b;margin-top:.28rem;line-height:1.45;overflow-wrap:anywhere;}
+.qs-stock-industry{color:#335c87;font-weight:660;}
 .qs-divider{height:1px;background:#e7edf4;margin:.75rem 0;}
 @media(max-width:640px){
  .qs-summary{padding:.76rem .85rem;}
@@ -300,6 +301,8 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame, eff
         name = escape(str(item['name']))
         pattern = escape(str(item['pattern']))
         stage = escape(str(item['stage']))
+        industry_value = item.get('industry', '未分類')
+        industry = escape(str(industry_value)) if pd.notna(industry_value) else '未分類'
         score = int(item['score'])
         price = float(item['close'])
         quick_rows.append(
@@ -307,7 +310,8 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame, eff
             f'<span class="qs-stock-name"><span class="qs-stock-code">{code}</span>{name}</span>'
             f'<span class="qs-stock-score">{score} 分</span>'
             '</div><div class="qs-stock-bottom">'
-            f'{pattern} · {stage} · 收盤 {price:,.2f} 元'
+            f'<span class="qs-stock-industry">產業：{industry}</span> · {pattern} · {stage}'
+            f' · 收盤 {price:,.2f} 元'
             '</div></div>'
         )
     st.markdown('<div class="qs-rows">' + ''.join(quick_rows) + '</div>',
