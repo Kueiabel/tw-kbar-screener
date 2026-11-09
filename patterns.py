@@ -1,6 +1,6 @@
 """Deterministic, explainable price-action / K-bar pattern screener.
 
-No stochastic KD indicator is used. All decisions are point-in-time: a signal
+Optional KD signals are available; all decisions are point-in-time: a signal
 at index i is decided only using OHLCV rows through i. Recent swing pivots are
 acknowledged *two bars after* the extremum, never before.
 """
@@ -84,6 +84,37 @@ def _pair_pattern(o, h, l, c, side: str):
     return []
 
 
+def _hammer_at(o, h, l, c, idx: int) -> bool:
+    """Detect a bottom hammer at idx using only data available through idx.
+
+    The hammer shape is a *candidate* reversal, not proof of an uptrend.
+    A separate next-session close confirms a potential turn.
+    """
+    end = len(c) + idx if idx < 0 else idx
+    if end < 31:
+        return False
+    op, hi, lo, cl = (float(arr[end]) for arr in (o, h, l, c))
+    span = max(0.00001, hi - lo)
+    body = abs(cl - op)
+    lower = min(op, cl) - lo
+    upper = hi - max(op, cl)
+    prior_down = c[end-1] < c[end-8] * .988
+    prior_up = c[end-1] > c[end-8] * 1.012
+    low20 = float(np.min(l[end-20:end]))
+    low30 = float(np.min(l[end-30:end]))
+    high30 = float(np.max(h[end-30:end]))
+    pos = (cl-low30) / max(1e-8, high30-low30)
+    near_bottom = prior_down or ((lo <= low20*1.035 or pos <= .33)
+                                 and not prior_up)
+    return bool(
+        lower >= 2*max(body, span*.08)
+        and lower >= span*.52
+        and upper <= span*.23
+        and cl >= lo + span*.60
+        and near_bottom
+    )
+
+
 def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windows=(20,52)):
     """Pattern tuples (side,name,base_score,reason,stage) for the FINAL bar."""
     if len(df) < 32:
@@ -112,8 +143,20 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
         if category in allowed:
             res.append((side, label, score, reason, stage, category))
     # One-bar candlestick patterns with context; a tiny doji gets minimal body denom.
-    if lower >= 2*max(body,span*.08) and lower >= span*.52 and upper <= span*.23 and cl >= lo+span*.60 and near_bottom:
-        add("bottom", "錘子線／長下影", 37, "下影線明顯長於實體，收盤收回區間上半部")
+    if _hammer_at(o, h, l, c, -1):
+        add("bottom", "錘頭出現／長下影", 35,
+            "下跌後長下影與小實體，顯示盤中承接；仍待下一交易日確認",
+            "提前預警")
+    # Confirm on the *following* completed daily bar, never on the hammer day.
+    # The bullish close must exceed the hammer's real-body high by 0.3%.
+    if (_hammer_at(o, h, l, c, -2)
+            and cl > op
+            and cl > max(o[-2], c[-2])*1.003):
+        volume_note = ("；量能高於錘頭當日" if shares[-1] > shares[-2]
+                       else "；量能未超過錘頭當日")
+        add("bottom", "錘頭確認轉強", 68,
+            "前一交易日出現低檔錘頭，今日紅 K 收盤突破錘頭實體高點"
+            + volume_note + "，仍須自行驗證", "已確認")
     if upper >= 2*max(body,span*.08) and upper >= span*.52 and lower <= span*.23 and cl <= lo+span*.4 and near_top:
         add("top", "流星線／長上影", 37, "上影線明顯長於實體，收盤回到區間下半部")
     # Candlestick families shown in the reference examples; neutral/ambiguous
