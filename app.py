@@ -128,9 +128,11 @@ def show_online_count():
 # The affiliate provider determines actual tracking and commission eligibility.
 SHOPEE_OWNER_LINK = "https://s.shopee.tw/1BNlwubj44"
 def shopee_affiliate_url() -> str:
+    # Streamlit can raise a secrets-specific exception if no secrets.toml
+    # exists; a public owner URL should still work without any cloud secrets.
     try:
         configured = str(st.secrets.get("SHOPEE_AFFILIATE_URL", "")).strip()
-    except (FileNotFoundError, KeyError):
+    except Exception:
         configured = ""
     configured = (configured or os.environ.get("SHOPEE_AFFILIATE_URL", "").strip()
                   or SHOPEE_OWNER_LINK)
@@ -143,16 +145,25 @@ def shopee_affiliate_url() -> str:
     return configured
 
 
-def render_affiliate_promotion():
+def render_affiliate_promotion(compact: bool = False):
     affiliate = shopee_affiliate_url()
     if not affiliate:
         return
     with st.container(border=True):
-        st.caption("廣告・蝦皮聯盟推廣｜點擊購買可能為本站帶來分潤")
-        st.markdown("**蝦皮購物推廣連結**")
-        st.link_button("前往蝦皮購物", affiliate,
-                       use_container_width=True)
-        st.caption("此為自願點擊的站外推廣連結，不影響股票搜尋結果。")
+        st.caption("廣告 · 蝦皮聯盟推廣（點擊購買可能產生分潤）")
+        if compact:
+            ad_info, ad_action = st.columns([3, 2], vertical_alignment="center")
+            with ad_info:
+                st.markdown("**蝦皮購物**")
+                st.caption("站外推廣 · 自由選擇是否點擊")
+            with ad_action:
+                st.link_button("前往蝦皮 ↗", affiliate,
+                               use_container_width=True)
+        else:
+            st.markdown("**蝦皮購物推廣連結**")
+            st.link_button("前往蝦皮購物 ↗", affiliate,
+                           use_container_width=True)
+            st.caption("此為自願點擊的站外推廣連結，不影響股票搜尋結果。")
 
 
 @st.cache_resource(show_spinner=False)
@@ -456,6 +467,9 @@ if "scan_future" in st.session_state:
     st.stop()
 
 show_online_count()
+# Visible on normal page load too, not only during scanning or at the
+# very bottom of long results. Keep it compact and clearly disclosed.
+render_affiliate_promotion(compact=True)
 if "scan_error" in st.session_state:
     st.error("搜尋中斷：" + st.session_state.pop("scan_error"))
 
@@ -655,6 +669,6 @@ if 'results' in st.session_state:
 6. 歷史數據保存在程式資料夾的 `data/twse_cache.sqlite3`，不需上傳至第三方雲端平台。
         ''')
     st.caption('本工具僅供研究與選股輔助，不構成投資建議。週 K 使用完整交易週，不包含本週尚未結束的 K 棒。')
-    # Promotional links stay separate from financial screening.
-    render_affiliate_promotion()
+    # The clearly disclosed Shopee link is already available above the form.
+    # Avoid repeated ad cards after the rankings.
 
