@@ -487,13 +487,13 @@ with search_panel:
     hammer_only_bottom = st.checkbox(
         '底部只看低點突破與錘頭突破（建議）',
         value=True,
-        help='嚴格模式只列入兩類型：近期低點止跌後紅 K 突破，以及錘頭隔日紅 K 突破。不會混入均線、KD 或其他非突破型態。')
+        help='嚴格模式僅列入低點止跌後突破、錘頭隔日突破及已確認晨星三 K。不會混入均線、KD 或其他非突破型態。')
     low_rebound = st.checkbox(
         '低點止跌後突破（主要標準）',
         value=True,
         help='下跌後近 15 日低點不再被跌破，隨後 1～4 個交易日紅 K 首次收盤突破低點那根 K 棒的最高價至少 0.3%。不是保證起漲。')
     if hammer_only_bottom:
-        st.caption('優先搜尋：下跌形成低點 → 守住低點 → 紅 K 收盤突破。也保留原本錘頭隔日突破；兩類之外的訊號不混入底部榜單。')
+        st.caption('優先搜尋：下跌形成低點 → 守住低點 → 紅 K 收盤突破；另包含錘頭隔日突破、確認晨星三 K。其他訊號不混入底部榜單。')
 
     select_ma = st.checkbox('均線突破／跌破', value=True)
     include_wm = st.checkbox('W 底／M 頭', value=False)
@@ -512,13 +512,11 @@ with search_panel:
     if low_rebound:
         targets.append('低點止跌突破')
     targets.extend(extra_signals)
+    # Keep the original MA5/10/20/52 price-breakout logic and defaults,
+    # while avoiding an unnecessary advanced period selector on mobile.
     ma_windows = [5, 10, 20, 52]
     if select_ma:
-        selected_ma = st.multiselect('均線週期（可複選）', options=ma_windows,
-            default=ma_windows, format_func=lambda n: f'MA{n}')
-        ma_windows = selected_ma
-        if not ma_windows:
-            st.warning('使用均線搜尋時，請至少選擇一個 MA 週期。')
+        st.caption('股價突破／跌破均線：固定 MA5、MA10、MA20、MA52；非均線黃金交叉。')
     # Avoid nesting expanders: Streamlit does not support an expander inside another.
     advanced_panel = (st.container() if 'results' in st.session_state
                       else st.expander('更多設定：訊號天數'))
@@ -528,8 +526,7 @@ with search_panel:
         signal_days = st.select_slider('最近幾個交易日出現訊號',
             options=[1,2,3,4,5],value=3)
         history_days = st.slider('歷史回溯天數',120,250,165,5)
-    valid_targets = (bool(targets) and (not select_ma or bool(ma_windows))
-                     and price_error is None)
+    valid_targets = bool(targets) and price_error is None
     if not targets:
         st.warning('請至少勾選一種搜尋型態。')
     run = st.button('開始篩選股票',type='primary',
@@ -584,7 +581,7 @@ if 'results' in st.session_state:
     st.markdown('<div class="qs-stats">' + stat_html + '</div>',
                 unsafe_allow_html=True)
     strict = r['criteria'].get('hammer_only_bottom', False)
-    st.caption(('底部榜單以低點止跌後突破及錘頭隔日突破為主。' if strict
+    st.caption(('底部榜單以低點突破、錘頭隔日突破與確認晨星三 K 為主。' if strict
                 else '底部榜單包含所有勾選的反轉型態。')
                + f' 名單使用盤後{frame_label}；評分不是勝率。')
     tabs=st.tabs(['底部候選 Top 25','頂部候選 Top 25','判斷規則'])
