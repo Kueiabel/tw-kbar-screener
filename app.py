@@ -420,15 +420,15 @@ with search_panel:
     st.markdown('**搜尋訊號（可複選）**')
     select_kbar = st.checkbox('K 棒頂部／底部反轉', value=True)
     hammer_only_bottom = st.checkbox(
-        '底部優先嚴格反轉訊號（建議）',
+        '底部只看低點突破與錘頭突破（建議）',
         value=True,
-        help='保留既有預設：僅錘頭隔日突破。若另外勾選下方的低點止跌突破，也會加入底部清單；其他無關訊號不混入。')
+        help='嚴格模式只列入兩類型：近期低點止跌後紅 K 突破，以及錘頭隔日紅 K 突破。不會混入均線、KD 或其他非突破型態。')
     low_rebound = st.checkbox(
-        '加選「低點止跌後突破」',
-        value=False,
+        '低點止跌後突破（主要標準）',
+        value=True,
         help='下跌後近 15 日低點不再被跌破，隨後 1～4 個交易日紅 K 首次收盤突破低點那根 K 棒的最高價至少 0.3%。不是保證起漲。')
     if hammer_only_bottom:
-        st.caption('嚴格底部模式：預設只收錘頭隔日突破；可自行加選低點止跌後突破。')
+        st.caption('優先搜尋：下跌形成低點 → 守住低點 → 紅 K 收盤突破。也保留原本錘頭隔日突破；兩類之外的訊號不混入底部榜單。')
 
     select_ma = st.checkbox('均線突破／跌破', value=True)
     include_wm = st.checkbox('W 底／M 頭', value=False)
@@ -513,7 +513,7 @@ if 'results' in st.session_state:
     st.markdown('<div class="qs-stats">' + stat_html + '</div>',
                 unsafe_allow_html=True)
     strict = r['criteria'].get('hammer_only_bottom', False)
-    st.caption(('底部榜單以錘頭隔日突破為主；低點止跌突破僅在勾選時加入。' if strict
+    st.caption(('底部榜單以低點止跌後突破及錘頭隔日突破為主。' if strict
                 else '底部榜單包含所有勾選的反轉型態。')
                + ' 名單使用盤後日 K；評分不是勝率。')
     tabs=st.tabs(['底部候選 Top 25','頂部候選 Top 25','判斷規則'])
@@ -525,7 +525,7 @@ if 'results' in st.session_state:
         st.markdown('''
 **判斷型態**
 
-- **底部：** 錘頭隔日突破（首日錘頭、次日紅 K 收盤突破錘頭最高價至少 0.3%，次日盤後列入榜單供第三日參考）、可選「低點止跌後突破」（不要求標準錘頭）、多頭吞噬、晨星三 K、跌破前低後收回、局部低點二 K 確認、W 底雛形／突破頸線、20 日區間向上突破。
+- **底部：** 錘頭隔日突破（首日錘頭、次日紅 K 收盤突破錘頭最高價至少 0.3%，次日盤後列入榜單供第三日參考）、「低點止跌後突破」（預設勾選，不要求標準錘頭）、多頭吞噬、晨星三 K、跌破前低後收回、局部低點二 K 確認、W 底雛形／突破頸線、20 日區間向上突破。
 - **頂部：** 流星線（長上影）、空頭吞噬、夜星三 K、突破前高後跌回、局部高點二 K 確認、M 頭雛形／跌破頸線、20 日區間向下跌破。
 - **評分：** 型態基本分＋流動性＋訊號日量比＋均線位置／方向－訊號距今交易日的時間折減，最高 100 分。分數不能解讀為上漲或下跌的機率。
 - **榜單：** 每檔最多入選一次，採用該檔最符合條件的訊號。只有符合條件才列入，可能不足 25 檔。
