@@ -531,6 +531,13 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
             with_patterns += 1
     final = []
     chosen_categories = set(enabled_categories)
+    # Intersection is evaluated stock-wide, across both bullish and bearish
+    # signals, not independently in each of the two ranking tabs.
+    stock_categories = {}
+    if require_all_signals:
+        for entries in result.values():
+            for entry in entries:
+                stock_categories.setdefault(entry["code"], set()).add(entry["category"])
     for side in ("bottom", "top"):
         frame = pd.DataFrame(result[side])
         if not frame.empty:
@@ -541,8 +548,8 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
                 ascending=[False, True, False])
             combined = []
             for code, matches in frame.groupby("code", sort=False):
-                matched_categories = set(matches["category"].astype(str))
-                if require_all_signals and not chosen_categories.issubset(matched_categories):
+                if (require_all_signals and not chosen_categories.issubset(
+                        stock_categories.get(code, set()))):
                     continue
                 best = matches.iloc[0].to_dict()
                 unique_patterns = list(dict.fromkeys(matches["pattern"].astype(str)))
