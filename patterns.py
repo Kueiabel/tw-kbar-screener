@@ -158,6 +158,30 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
                 f"{hammer_high:.2f} 元 0.3% 以上{volume_note}；"
                 "供下一交易日觀察，尚未代表後續一定上漲",
                 "隔日突破已確認")
+    # Optional "Transcend-style" rebound: a fresh downside pivot low followed
+    # by the FIRST bullish close above the pivot candle's high. No need for
+    # the pivot candle to be a textbook hammer.
+    if "低點止跌突破" in allowed and len(c) >= 42 and cl > op:
+        for bars_after_low in range(1, 5):
+            pivot = len(c) - 1 - bars_after_low
+            pivot_low = float(l[pivot])
+            pivot_high = float(h[pivot])
+            if pivot_high <= 0:
+                continue
+            # Meaningful preceding decline and a low near the past 15 days.
+            downtrend = (c[pivot-1] <= c[pivot-9]*.97
+                         and pivot_low <= np.min(l[pivot-15:pivot])*1.01)
+            held_low = np.min(l[pivot+1:]) >= pivot_low*.995
+            breakout = (cl > pivot_high*1.003
+                        and c[-2] <= pivot_high*1.003)
+            if downtrend and held_low and breakout:
+                pivot_date = str(df.date.iloc[pivot])
+                add("bottom", "低點止跌後突破", 61,
+                    f"{pivot_date} 出現近期低點 {pivot_low:.2f} 元；"
+                    f"今日紅 K 收盤首次站上該低點 K 棒最高價 {pivot_high:.2f} 元 "
+                    "0.3% 以上；請自行核對量能與後續走勢",
+                    "突破已確認", category="低點止跌突破")
+                break
     if upper >= 2*max(body,span*.08) and upper >= span*.52 and lower <= span*.23 and cl <= lo+span*.4 and near_top:
         add("top", "流星線／長上影", 37, "上影線明顯長於實體，收盤回到區間下半部")
     # Candlestick families shown in the reference examples; neutral/ambiguous
@@ -342,8 +366,11 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
                 # Strict hammer scan: the bottom list must not contain
                 # unrelated MA, engulfing or unconfirmed reversal signals.
                 # Top-side screening is unchanged.
-                if hammer_only_bottom and side == "bottom" and name != "錘頭隔日突破・第三日觀察":
+                if hammer_only_bottom and side == "bottom" and name not in (
+                        "錘頭隔日突破・第三日觀察", "低點止跌後突破"):
                     continue
+                # An optional rebound is included only when its category is
+                # independently selected in the UI; hammer-only remains the default.
                 code_signals += 1
                 score, ratio = _score(grp,i,side,base,age)
                 # K-bars are the main objective even when optional scans are enabled.
