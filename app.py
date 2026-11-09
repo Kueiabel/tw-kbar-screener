@@ -129,7 +129,7 @@ def show_online_count():
 
 
 # Owner-supplied product promotion URL; shared by the banner and button.
-SHOPEE_OWNER_LINK = "https://s.shopee.tw/9KjTlVBiWa"
+SHOPEE_OWNER_LINK = "https://s.shopee.tw/AKc0xL7uUk"
 
 
 def shopee_affiliate_url() -> str:
