@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from html import escape
 from math import isfinite
 from zoneinfo import ZoneInfo
 from threading import Lock
@@ -60,6 +61,40 @@ div[data-testid="stExpander"]>details>summary{
  .stButton>button{min-height:3.2rem !important;}
  div[data-testid="stMetric"]{padding:.53rem .68rem;}
  div[data-testid="stExpander"]>details>summary{padding:1rem .85rem !important;}
+}
+
+/* Branded, accessible mobile cards. Only scoped classes are colored. */
+.qs-brand{padding:.1rem 0 .35rem;}
+.qs-kicker{font-size:.75rem;font-weight:720;letter-spacing:.11em;color:#526988;margin:0 0 .24rem;}
+.qs-subtitle{font-size:.9rem;line-height:1.58;color:#64748b;margin:.15rem 0 .25rem;}
+.qs-status{display:inline-flex;gap:.42rem;align-items:center;padding:.36rem .65rem;border-radius:999px;
+ background:#eef5ff;color:#285a9b;border:1px solid #dce9fa;font-size:.78rem;font-weight:640;margin:.4rem 0;}
+.qs-summary{margin:.45rem 0 .9rem;padding:.85rem 1rem;border-radius:16px;
+ background:linear-gradient(115deg,#ffffff,#f1f6ff);border:1px solid #dbe7f5;}
+.qs-summary-label{color:#61718b;font-size:.77rem;font-weight:660;letter-spacing:.04em;}
+.qs-summary-date{color:#182f50;font-size:1.2rem;font-weight:720;margin:.18rem 0;}
+.qs-summary-note{color:#64748b;font-size:.78rem;line-height:1.5;}
+.qs-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.65rem;margin:0 0 1.1rem;}
+.qs-stat{min-width:0;border-radius:14px;padding:.8rem .85rem;background:#fff;
+ border:1px solid #e0e8f2;box-shadow:0 3px 14px rgba(25,49,85,.035);}
+.qs-stat-label{font-size:.78rem;color:#65768e;letter-spacing:.012em;}
+.qs-stat-value{font-size:1.4rem;font-weight:740;color:#182f50;margin-top:.17rem;line-height:1.3;}
+.qs-stat-unit{font-size:.76rem;font-weight:550;color:#728196;margin-left:.25rem;}
+.qs-rows{display:grid;gap:.55rem;margin:.55rem 0 1rem;}
+.qs-stock{border:1px solid #e0e8f2;background:#ffffff;border-radius:13px;
+ padding:.75rem .88rem;box-shadow:0 2px 10px rgba(22,49,84,.03);}
+.qs-stock-top{display:flex;gap:.35rem;align-items:center;justify-content:space-between;}
+.qs-stock-name{font-size:.99rem;font-weight:720;color:#20334e;min-width:0;}
+.qs-stock-code{font-size:.78rem;font-weight:600;color:#64748b;margin-right:.42rem;}
+.qs-stock-score{font-size:.83rem;font-weight:760;color:#2563eb;white-space:nowrap;}
+.qs-stock-bottom{font-size:.8rem;color:#64748b;margin-top:.28rem;line-height:1.45;overflow-wrap:anywhere;}
+.qs-divider{height:1px;background:#e7edf4;margin:.75rem 0;}
+@media(max-width:640px){
+ .qs-summary{padding:.76rem .85rem;}
+ .qs-stats{gap:.5rem;}
+ .qs-stat{padding:.72rem .7rem;}
+ .qs-stat-value{font-size:1.26rem;}
+ .qs-stock{padding:.72rem .78rem;}
 }
 </style>
 """, unsafe_allow_html=True)
@@ -256,14 +291,34 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame, eff
         'volume_lots':'今日量(張)','avg_volume_lots':'20日均量(張)',
         'avg_turnover_100m':'20日均成交額(億)','volume_ratio':'量比'
     })
-    # Keep ranking readable on a narrow screen. Extra fields remain available
-    # in the detailed expandable table and the CSV download.
-    st.dataframe(shown[['排名','代號','股票名稱','產業類別','型態','分數','收盤價']],
-        hide_index=True,use_container_width=True,height=min(35*len(frame)+44,900),
-        column_config={'分數':st.column_config.ProgressColumn(
-            '分數',min_value=0,max_value=100,format='%d'),
-            '收盤價':st.column_config.NumberColumn('收盤價',format='%.2f')})
-    with st.expander('展開完整榜單（成交量、成交金額、日期等）'):
+    # First five as readable, thumb-friendly rows, without horizontal swiping.
+    # The original full 25-stock table, CSV, and chart remain available below.
+    st.caption('優先查看前 5 檔；完整 25 檔榜單可在下方展開')
+    quick_rows = []
+    for _, item in frame.head(5).iterrows():
+        code = escape(str(item['code']))
+        name = escape(str(item['name']))
+        pattern = escape(str(item['pattern']))
+        stage = escape(str(item['stage']))
+        score = int(item['score'])
+        price = float(item['close'])
+        quick_rows.append(
+            '<div class="qs-stock"><div class="qs-stock-top">'
+            f'<span class="qs-stock-name"><span class="qs-stock-code">{code}</span>{name}</span>'
+            f'<span class="qs-stock-score">{score} 分</span>'
+            '</div><div class="qs-stock-bottom">'
+            f'{pattern} · {stage} · 收盤 {price:,.2f} 元'
+            '</div></div>'
+        )
+    st.markdown('<div class="qs-rows">' + ''.join(quick_rows) + '</div>',
+                unsafe_allow_html=True)
+    with st.expander('查看完整榜單（最多 25 檔）', expanded=False):
+        st.dataframe(shown[['排名','代號','股票名稱','產業類別','型態','分數','收盤價']],
+            hide_index=True,use_container_width=True,height=min(35*len(frame)+44,900),
+            column_config={'分數':st.column_config.ProgressColumn(
+                '分數',min_value=0,max_value=100,format='%d'),
+                '收盤價':st.column_config.NumberColumn('收盤價',format='%.2f')})
+    with st.expander('更多欄位（成交量、成交金額、日期等）'):
         st.dataframe(shown[['排名','代號','股票名稱','產業類別',
             '搜尋類別','型態','階段','分數','訊號日期','收盤價',
             '漲跌幅 %','今日量(張)','20日均量(張)','20日均成交額(億)','量比']],
@@ -294,22 +349,22 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame, eff
 
 # Mobile home-screen users have no obvious browser refresh control.
 # This reruns the Streamlit page without interrupting an active scan.
-header_main, header_refresh = st.columns([5, 2], vertical_alignment="center")
-with header_main:
-    st.title('台股 K 棒快速篩選')
-with header_refresh:
-    if st.button('🔄 更新畫面', key='refresh_page', type='primary',
-                 use_container_width=True,
-                 disabled='scan_future' in st.session_state,
-                 help='重新整理網站畫面；若需最新選股結果，請再執行搜尋。'):
-        st.rerun()
+st.markdown('<div class="qs-kicker">TW STOCK SCREENER · 日 K 篩選</div>',
+            unsafe_allow_html=True)
+st.title('台股 K 棒快速篩選')
+st.markdown('<p class="qs-subtitle">快速找出可能反轉的上市股票，再用自己的交易工具驗證。</p>',
+            unsafe_allow_html=True)
+if st.button('↻ 重新整理畫面', key='refresh_page', type='secondary',
+             use_container_width=True,
+             disabled='scan_future' in st.session_state,
+             help='更新頁面狀態；若需最新盤後篩選，請重新執行搜尋。'):
+    st.rerun()
 
 if "scan_future" in st.session_state:
     render_waiting_ad()
     st.stop()
 
 show_online_count()
-st.caption('台灣上市普通股 · 盤後日 K · 找出候選股票後，再自行驗證')
 if "scan_error" in st.session_state:
     st.error("搜尋中斷：" + st.session_state.pop("scan_error"))
 
@@ -321,7 +376,8 @@ if 'results' in st.session_state:
 search_panel = (st.expander('🔎 調整條件・重新選股', expanded=False)
                 if 'results' in st.session_state else st.container(border=True))
 with search_panel:
-    st.subheader('🔎 搜尋條件')
+    st.subheader('設定篩選條件')
+    st.caption('使用預設條件即可搜尋；需要時再調整。')
     c_date, c_volume = st.columns(2)
     with c_date:
         query_date = st.date_input('查詢日期', value=last_weekday(),
@@ -413,21 +469,31 @@ if 'results' in st.session_state:
     effective_date=r['info']['effective_date']
     if effective_date != r['criteria']['date']:
         st.warning(f"選擇 {r['criteria']['date']}，該日無完整盤後行情；實際採用 **{effective_date}** 交易日資料。")
-    st.success(f"完成搜尋：資料截止 **{effective_date}**｜上市公司名冊 {r['diag']['listed']:,} 檔｜歷史日 K {r['info']['history_sessions']:,} 個交易日")
-    a,b=st.columns(2)
-    a.metric('可分析上市股票',f"{r['diag']['covered']:,} 檔")
-    b.metric('符合流動性',f"{r['diag']['liquid']:,} 檔")
-    c,d=st.columns(2)
-    c.metric('底部榜單',f"{len(r['bottom'])} / 25 檔")
-    d.metric('頂部榜單',f"{len(r['top'])} / 25 檔")
-    st.caption(f"本次新下載／檢查交易日 {r['info']['downloaded_days']} 天。產業類別採證交所上市公司官方分類；未分類表示官方欄位缺漏或尚未取得。排行分數並非勝率。")
-    # AdSense belongs alongside substantive results, not on a loading-only
-    # screen. Do not inject unapproved ad tags or fake impression counts.
-    with st.container(border=True):
-        st.caption("廣告 · Google AdSense 預定版位")
-        st.write("網站核准並完成廣告程式碼安裝後，將於此處展示廣告。")
-        st.caption("目前尚未啟用 Google 廣告，也不會產生廣告收入。")
-    tabs=st.tabs(['🟢 底部型態 Top 25','🔴 頂部型態 Top 25','ℹ️ 評分規則與注意事項'])
+    st.markdown(
+        '<div class="qs-summary">'
+        '<div class="qs-summary-label">篩選完成 · 盤後日 K</div>'
+        f'<div class="qs-summary-date">資料截至 {escape(str(effective_date))}</div>'
+        f'<div class="qs-summary-note">歷史資料 {r["info"]["history_sessions"]:,} 個交易日 · '
+        f'上市名冊 {r["diag"]["listed"]:,} 檔</div>'
+        '</div>',
+        unsafe_allow_html=True)
+    stats = [
+        ('可分析股票', r['diag']['covered'], '檔'),
+        ('符合流動性', r['diag']['liquid'], '檔'),
+        ('底部候選', len(r['bottom']), '/ 25 檔'),
+        ('頂部候選', len(r['top']), '/ 25 檔'),
+    ]
+    stat_html = ''.join(
+        '<div class="qs-stat">'
+        f'<div class="qs-stat-label">{escape(label)}</div>'
+        f'<div class="qs-stat-value">{int(value):,}'
+        f'<span class="qs-stat-unit">{escape(unit)}</span></div>'
+        '</div>' for label, value, unit in stats
+    )
+    st.markdown('<div class="qs-stats">' + stat_html + '</div>',
+                unsafe_allow_html=True)
+    st.caption('名單依選定條件排序；評分不是勝率，候選股票請自行核對。')
+    tabs=st.tabs(['底部候選 Top 25','頂部候選 Top 25','判斷規則'])
     with tabs[0]:
         render_rankings(r['bottom'],'bottom',r['data'],effective_date)
     with tabs[1]:
@@ -436,7 +502,7 @@ if 'results' in st.session_state:
         st.markdown('''
 **判斷型態**
 
-- **底部：** 錘子線（長下影）、多頭吞噬、晨星三 K、跌破前低後收回、局部低點二 K 確認、W 底雛形／突破頸線、20 日區間向上突破。
+- **底部：** 錘頭出現（提前預警）、錘頭確認轉強（次一交易日確認）、多頭吞噬、晨星三 K、跌破前低後收回、局部低點二 K 確認、W 底雛形／突破頸線、20 日區間向上突破。
 - **頂部：** 流星線（長上影）、空頭吞噬、夜星三 K、突破前高後跌回、局部高點二 K 確認、M 頭雛形／跌破頸線、20 日區間向下跌破。
 - **評分：** 型態基本分＋流動性＋訊號日量比＋均線位置／方向－訊號距今交易日的時間折減，最高 100 分。分數不能解讀為上漲或下跌的機率。
 - **榜單：** 每檔最多入選一次，採用該檔最符合條件的訊號。只有符合條件才列入，可能不足 25 檔。
@@ -451,4 +517,7 @@ if 'results' in st.session_state:
 6. 歷史數據保存在程式資料夾的 `data/twse_cache.sqlite3`，不需上傳至第三方雲端平台。
         ''')
     st.caption('本工具僅供研究與選股輔助，不構成投資建議。')
+    # Reserved for future approved advertising, outside the quick-result area.
+    with st.expander('廣告合作資訊', expanded=False):
+        st.caption('Google AdSense 尚未啟用；通過審核後才會顯示正式廣告。')
 
