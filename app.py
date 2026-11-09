@@ -443,18 +443,12 @@ search_panel = (st.expander('🔎 調整條件・重新選股', expanded=False)
 with search_panel:
     st.subheader('設定篩選條件')
     st.caption('使用預設條件即可搜尋；需要時再調整。')
-    frame_choice = st.selectbox('K 線搜尋週期', [
-        '日 K', '週 K',
-        '3 分 K（資料來源待授權）', '5 分 K（資料來源待授權）',
-        '15 分 K（資料來源待授權）', '30 分 K（資料來源待授權）',
-        '60 分 K（資料來源待授權）'
-    ], index=0, help='日 K 為預設，週 K 使用證交所每日盤後資料合成完整週 K。分 K 資料未經授權前不啟用搜尋。')
+    frame_choice = st.selectbox(
+        'K 線搜尋週期', ['日 K', '週 K'], index=0,
+        help='預設日 K；週 K 由證交所盤後日 K 合成，僅採用已完成交易週。')
     timeframe = 'W' if frame_choice == '週 K' else 'D'
-    minute_unavailable = '分 K' in frame_choice
-    if minute_unavailable:
-        st.warning('分 K 選項已列出，但目前尚無獲准用於公開商業網站的分鐘行情來源，暫不能搜尋；請先選日 K 或週 K。')
-    elif timeframe == 'W':
-        st.caption('週 K 僅使用已完成交易週；預設流動性仍以近 20 個「交易日」計算。首次搜尋需下載較長的歷史資料。')
+    if timeframe == 'W':
+        st.caption('週 K 使用完整交易週；流動性仍依近 20 個交易日計算。首次搜尋可能需要下載較長歷史資料。')
     c_date, c_volume = st.columns(2)
     with c_date:
         query_date = st.date_input('查詢日期', value=last_weekday(),
@@ -535,7 +529,7 @@ with search_panel:
             options=[1,2,3,4,5],value=3)
         history_days = st.slider('歷史回溯天數',120,250,165,5)
     valid_targets = (bool(targets) and (not select_ma or bool(ma_windows))
-                     and price_error is None and not minute_unavailable)
+                     and price_error is None)
     if not targets:
         st.warning('請至少勾選一種搜尋型態。')
     run = st.button('開始篩選股票',type='primary',
@@ -611,7 +605,7 @@ if 'results' in st.session_state:
 
 **務必留意**
 
-1. 資料為**盤後**日 K 或完整週 K，不是即時交易訊號。週 K 由官方日 K 合成；本週尚未完成時使用上一個完整交易週。分 K 尚未啟用。
+1. 資料為**盤後**日 K 或完整週 K，不是即時交易訊號。週 K 由官方日 K 合成；本週尚未完成時使用上一個完整交易週。
 2. TWSE 官方 OHLC 為**未還原權息**價格。除權息、減資、分割等因素可能形成假性跳空與技術型態；請回到券商圖表人工核對。
 3. W 底、M 頭與局部高低點等定義為可重現的幾何規則，並非市場公認的唯一標準。底部／頂部是**候選型態**，不代表一定見底或見頂。
 4. 股票名冊以目前上市公司為準，搜尋較早歷史日不等於嚴格的歷史成分股回測；不適合直接用來計算真實策略勝率。
