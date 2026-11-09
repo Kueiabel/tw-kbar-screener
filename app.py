@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from math import isfinite
 from zoneinfo import ZoneInfo
 from threading import Lock
 from time import monotonic
@@ -128,7 +129,8 @@ def run_stock_scan(opts):
                 info["data"], companies, info["effective_date"],
                 min_vol_lots=opts["min_vol"],
                 min_turnover_100m=opts["min_money"],
-                min_price=opts["min_price"], signal_days=opts["signal_days"],
+                min_price=opts["min_price"], max_price=opts["max_price"],
+                signal_days=opts["signal_days"],
                 top_n=25, enabled_categories=opts["targets"],
                 ma_windows=opts["ma_windows"])
             for ranking in (bottom, top):
@@ -144,6 +146,7 @@ def run_stock_scan(opts):
                     "min_vol": opts["min_vol"],
                     "min_money": opts["min_money"],
                     "min_price": opts["min_price"],
+                    "max_price": opts["max_price"],
                     "signal_days": opts["signal_days"],
                     "targets": list(opts["targets"]),
                     "ma_windows": list(opts["ma_windows"]),
@@ -382,13 +385,31 @@ with search_panel:
     with c_volume:
         min_vol = st.number_input('20 日均量下限（張）', min_value=0,
             max_value=100000, value=1000, step=500)
-    c_money, c_price = st.columns(2)
-    with c_money:
-        min_money = st.number_input('20 日均成交金額（億元）',
-            min_value=0.0, max_value=500.0, value=1.0, step=.5, format='%.1f')
-    with c_price:
-        min_price = st.number_input('最低股價（元）',
-            min_value=0.0, max_value=3000.0, value=10.0, step=5.0, format='%.1f')
+    min_money = st.number_input('20 日平均每日成交金額下限（億元）',
+        min_value=0.0, max_value=500.0, value=3.0, step=.5, format='%.1f',
+        help='預設 3 億元；可自行調整為 1 億、5 億等。此為股票成交金額，非公司營收。')
+    c_low, c_high = st.columns(2)
+    with c_low:
+        price_low_text = st.text_input('最低股價（元）', value='',
+            placeholder='空白＝原預設 10 元')
+    with c_high:
+        price_high_text = st.text_input('最高股價（元）', value='',
+            placeholder='空白＝不限上限')
+    price_error = None
+    try:
+        min_price = float(price_low_text.strip()) if price_low_text.strip() else 10.0
+        max_price = float(price_high_text.strip()) if price_high_text.strip() else None
+        if not isfinite(min_price) or min_price < 0:
+            price_error = '最低股價必須是 0 以上的有限數字。'
+        elif max_price is not None and (not isfinite(max_price) or max_price < 0):
+            price_error = '最高股價必須是 0 以上的有限數字。'
+        elif max_price is not None and max_price < min_price:
+            price_error = '最高股價不能小於最低股價。'
+    except ValueError:
+        min_price, max_price = 10.0, None
+        price_error = '股價請輸入有效數字（例如 30、150.5），也可以留白。'
+    if price_error:
+        st.error(price_error)
     st.markdown('**選擇搜尋型態（可複選）**')
     select_kbar = st.checkbox('K 棒頂部／底部反轉', value=True)
     select_ma = st.checkbox('均線突破／跌破', value=True)
@@ -416,7 +437,7 @@ with search_panel:
         signal_days = st.select_slider('最近幾個交易日出現訊號',
             options=[1,2,3,4,5],value=3)
         history_days = st.slider('歷史回溯天數',120,250,165,5)
-    valid_targets = bool(targets) and (not select_ma or bool(ma_windows))
+    valid_targets = bool(targets) and (not select_ma or bool(ma_windows)) and price_error is None
     if not targets:
         st.warning('請至少勾選一種搜尋型態。')
     run = st.button('🔍 開始搜尋上市股票',type='primary',
@@ -427,6 +448,7 @@ if run:
     criteria = {
         "query_date": query_date, "min_vol": min_vol,
         "min_money": min_money, "min_price": min_price,
+        "max_price": max_price,
         "targets": list(targets), "ma_windows": list(ma_windows),
         "signal_days": signal_days, "history_days": history_days,
     }
