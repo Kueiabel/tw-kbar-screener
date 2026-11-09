@@ -4,6 +4,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from html import escape
 from math import isfinite
+import os
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 from threading import Lock
 from time import monotonic
@@ -121,13 +123,36 @@ def show_online_count():
     st.caption(f"約 {count:,} 個活躍瀏覽工作階段 · 最近 90 秒估算，非精確訪客數")
 
 
-# Sponsor details must be entered only after a real partnership is approved.
-SPONSOR = {
-    "name": "廣告合作招募中",
-    "message": "台股 K 棒搜尋器｜此版位提供合法品牌合作洽詢",
-    "image_url": "",
-    "landing_url": "",
-}
+# Optional Shopee affiliate promotion. Configure the exact approved
+# tracking link in Streamlit Cloud Secrets as SHOPEE_AFFILIATE_URL.
+# An ordinary product URL must not be presented as a commission-tracking link.
+def shopee_affiliate_url() -> str:
+    try:
+        configured = str(st.secrets.get("SHOPEE_AFFILIATE_URL", "")).strip()
+    except (FileNotFoundError, KeyError):
+        configured = ""
+    configured = configured or os.environ.get("SHOPEE_AFFILIATE_URL", "").strip()
+    if not configured:
+        return ""
+    parsed = urlparse(configured)
+    host = (parsed.hostname or "").lower()
+    allowed = ("shopee.tw", "shope.ee", "shp.ee")
+    if parsed.scheme != "https" or not any(
+            host == d or host.endswith("." + d) for d in allowed):
+        return ""
+    return configured
+
+
+def render_affiliate_promotion():
+    affiliate = shopee_affiliate_url()
+    if not affiliate:
+        return
+    with st.container(border=True):
+        st.caption("廣告・蝦皮聯盟推廣｜點擊購買可能為本站帶來分潤")
+        st.markdown("**蝦皮購物精選推薦**")
+        st.link_button("前往蝦皮查看商品", affiliate,
+                       use_container_width=True)
+        st.caption("此為自願點擊的站外推廣連結，不影響股票搜尋結果。")
 
 
 @st.cache_resource(show_spinner=False)
@@ -257,16 +282,7 @@ def render_waiting_ad():
         st.rerun(scope="app")
     st.subheader("正在篩選股票，請稍候")
     st.caption("依照已選條件比對盤後行情，完成後立即顯示候選股票。")
-    with st.container(border=True):
-        st.caption("品牌贊助展示區 · 此處不載入 Google AdSense")
-        if SPONSOR["image_url"]:
-            st.image(SPONSOR["image_url"], use_container_width=True)
-        st.markdown("### " + SPONSOR["name"])
-        st.write(SPONSOR["message"])
-        if SPONSOR["landing_url"]:
-            st.link_button("了解贊助內容", SPONSOR["landing_url"],
-                           use_container_width=True)
-    st.info("搜尋完成後自動顯示結果；無須點擊廣告。")
+    render_affiliate_promotion()
     st.caption("首次下載歷史資料可能較久，請保持網頁開啟。")
 
 
@@ -639,7 +655,6 @@ if 'results' in st.session_state:
 6. 歷史數據保存在程式資料夾的 `data/twse_cache.sqlite3`，不需上傳至第三方雲端平台。
         ''')
     st.caption('本工具僅供研究與選股輔助，不構成投資建議。週 K 使用完整交易週，不包含本週尚未結束的 K 棒。')
-    # Reserved for future approved advertising, outside the quick-result area.
-    with st.expander('廣告合作資訊', expanded=False):
-        st.caption('Google AdSense 尚未啟用；通過審核後才會顯示正式廣告。')
+    # Promotional links stay separate from financial screening.
+    render_affiliate_promotion()
 
