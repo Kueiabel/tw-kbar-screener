@@ -309,9 +309,60 @@ st.caption('台灣上市普通股｜可選搜尋條件：K 棒反轉、均線突
 if "scan_error" in st.session_state:
     st.error("搜尋中斷：" + st.session_state.pop("scan_error"))
 
+# Show completed results BEFORE the search form. This avoids relying on
+# browser-specific JavaScript scroll behavior, especially on mobile Safari.
+# A rerun after scanning now opens on the results instead of the old filters.
+if 'results' in st.session_state:
+    r = st.session_state['results']
+    effective_date=r['info']['effective_date']
+    if effective_date != r['criteria']['date']:
+        st.warning(f"選擇 {r['criteria']['date']}，該日無完整盤後行情；實際採用 **{effective_date}** 交易日資料。")
+    st.success(f"完成搜尋：資料截止 **{effective_date}**｜上市公司名冊 {r['diag']['listed']:,} 檔｜歷史日 K {r['info']['history_sessions']:,} 個交易日")
+    a,b=st.columns(2)
+    a.metric('可分析上市股票',f"{r['diag']['covered']:,} 檔")
+    b.metric('符合流動性',f"{r['diag']['liquid']:,} 檔")
+    c,d=st.columns(2)
+    c.metric('底部榜單',f"{len(r['bottom'])} / 25 檔")
+    d.metric('頂部榜單',f"{len(r['top'])} / 25 檔")
+    st.caption(f"本次新下載／檢查交易日 {r['info']['downloaded_days']} 天。產業類別採證交所上市公司官方分類；未分類表示官方欄位缺漏或尚未取得。排行分數並非勝率。")
+    # AdSense belongs alongside substantive results, not on a loading-only
+    # screen. Do not inject unapproved ad tags or fake impression counts.
+    with st.container(border=True):
+        st.caption("廣告 · Google AdSense 預定版位")
+        st.write("網站核准並完成廣告程式碼安裝後，將於此處展示廣告。")
+        st.caption("目前尚未啟用 Google 廣告，也不會產生廣告收入。")
+    tabs=st.tabs(['🟢 底部型態 Top 25','🔴 頂部型態 Top 25','ℹ️ 評分規則與注意事項'])
+    with tabs[0]:
+        render_rankings(r['bottom'],'bottom',r['data'],effective_date)
+    with tabs[1]:
+        render_rankings(r['top'],'top',r['data'],effective_date)
+    with tabs[2]:
+        st.markdown('''
+**判斷型態**
+
+- **底部：** 錘子線（長下影）、多頭吞噬、晨星三 K、跌破前低後收回、局部低點二 K 確認、W 底雛形／突破頸線、20 日區間向上突破。
+- **頂部：** 流星線（長上影）、空頭吞噬、夜星三 K、突破前高後跌回、局部高點二 K 確認、M 頭雛形／跌破頸線、20 日區間向下跌破。
+- **評分：** 型態基本分＋流動性＋訊號日量比＋均線位置／方向－訊號距今交易日的時間折減，最高 100 分。分數不能解讀為上漲或下跌的機率。
+- **榜單：** 每檔最多入選一次，採用該檔最符合條件的訊號。只有符合條件才列入，可能不足 25 檔。
+
+**務必留意**
+
+1. 資料為**盤後**日 K，不是即時交易訊號。當天行情尚未公布時，會使用前一個可取得的交易日。
+2. TWSE 官方 OHLC 為**未還原權息**價格。除權息、減資、分割等因素可能形成假性跳空與技術型態；請回到券商圖表人工核對。
+3. W 底、M 頭與局部高低點等定義為可重現的幾何規則，並非市場公認的唯一標準。底部／頂部是**候選型態**，不代表一定見底或見頂。
+4. 股票名冊以目前上市公司為準，搜尋較早歷史日不等於嚴格的歷史成分股回測；不適合直接用來計算真實策略勝率。
+5. 流動性門檻是近 20 日的平均量與成交金額，不保證任何時刻都能以理想價格成交。
+6. 歷史數據保存在程式資料夾的 `data/twse_cache.sqlite3`，不需上傳至第三方雲端平台。
+        ''')
+    st.caption('本工具僅供研究與選股輔助，不構成投資建議。')
+
 # Search controls belong in the page itself (not the sidebar) to avoid
 # Safari's narrow overlay and oversized text clipping on iPhone.
-with st.container(border=True):
+# Once results exist, keep filters reachable without pushing results off screen.
+# First-time visitors still see the full search form immediately.
+search_panel = (st.expander('調整搜尋條件並重新搜尋', expanded=False)
+                if 'results' in st.session_state else st.container(border=True))
+with search_panel:
     st.subheader('🔎 搜尋條件')
     c_date, c_volume = st.columns(2)
     with c_date:
@@ -369,48 +420,3 @@ if run:
     st.rerun()
 
 
-if 'results' not in st.session_state:
-    st.info('選擇日期與條件後，按「開始搜尋上市股票」即可查看底部、頂部各 Top 25。')
-else:
-    r = st.session_state['results']
-    effective_date=r['info']['effective_date']
-    if effective_date != r['criteria']['date']:
-        st.warning(f"選擇 {r['criteria']['date']}，該日無完整盤後行情；實際採用 **{effective_date}** 交易日資料。")
-    st.success(f"完成搜尋：資料截止 **{effective_date}**｜上市公司名冊 {r['diag']['listed']:,} 檔｜歷史日 K {r['info']['history_sessions']:,} 個交易日")
-    a,b=st.columns(2)
-    a.metric('可分析上市股票',f"{r['diag']['covered']:,} 檔")
-    b.metric('符合流動性',f"{r['diag']['liquid']:,} 檔")
-    c,d=st.columns(2)
-    c.metric('底部榜單',f"{len(r['bottom'])} / 25 檔")
-    d.metric('頂部榜單',f"{len(r['top'])} / 25 檔")
-    st.caption(f"本次新下載／檢查交易日 {r['info']['downloaded_days']} 天。產業類別採證交所上市公司官方分類；未分類表示官方欄位缺漏或尚未取得。排行分數並非勝率。")
-    # AdSense belongs alongside substantive results, not on a loading-only
-    # screen. Do not inject unapproved ad tags or fake impression counts.
-    with st.container(border=True):
-        st.caption("廣告 · Google AdSense 預定版位")
-        st.write("網站核准並完成廣告程式碼安裝後，將於此處展示廣告。")
-        st.caption("目前尚未啟用 Google 廣告，也不會產生廣告收入。")
-    tabs=st.tabs(['🟢 底部型態 Top 25','🔴 頂部型態 Top 25','ℹ️ 評分規則與注意事項'])
-    with tabs[0]:
-        render_rankings(r['bottom'],'bottom',r['data'],effective_date)
-    with tabs[1]:
-        render_rankings(r['top'],'top',r['data'],effective_date)
-    with tabs[2]:
-        st.markdown('''
-**判斷型態**
-
-- **底部：** 錘子線（長下影）、多頭吞噬、晨星三 K、跌破前低後收回、局部低點二 K 確認、W 底雛形／突破頸線、20 日區間向上突破。
-- **頂部：** 流星線（長上影）、空頭吞噬、夜星三 K、突破前高後跌回、局部高點二 K 確認、M 頭雛形／跌破頸線、20 日區間向下跌破。
-- **評分：** 型態基本分＋流動性＋訊號日量比＋均線位置／方向－訊號距今交易日的時間折減，最高 100 分。分數不能解讀為上漲或下跌的機率。
-- **榜單：** 每檔最多入選一次，採用該檔最符合條件的訊號。只有符合條件才列入，可能不足 25 檔。
-
-**務必留意**
-
-1. 資料為**盤後**日 K，不是即時交易訊號。當天行情尚未公布時，會使用前一個可取得的交易日。
-2. TWSE 官方 OHLC 為**未還原權息**價格。除權息、減資、分割等因素可能形成假性跳空與技術型態；請回到券商圖表人工核對。
-3. W 底、M 頭與局部高低點等定義為可重現的幾何規則，並非市場公認的唯一標準。底部／頂部是**候選型態**，不代表一定見底或見頂。
-4. 股票名冊以目前上市公司為準，搜尋較早歷史日不等於嚴格的歷史成分股回測；不適合直接用來計算真實策略勝率。
-5. 流動性門檻是近 20 日的平均量與成交金額，不保證任何時刻都能以理想價格成交。
-6. 歷史數據保存在程式資料夾的 `data/twse_cache.sqlite3`，不需上傳至第三方雲端平台。
-        ''')
-    st.caption('本工具僅供研究與選股輔助，不構成投資建議。')
