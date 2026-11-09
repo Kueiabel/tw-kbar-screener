@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from math import isfinite
 from zoneinfo import ZoneInfo
 from threading import Lock
 from time import monotonic
@@ -18,7 +17,7 @@ import streamlit as st
 from patterns import screen
 from twse_source import ensure_history, load_companies, open_db, today_taiwan
 
-st.set_page_config(page_title="台股 K 棒型態搜尋器", page_icon="📈", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="台股 K 棒頂底搜尋器", page_icon="📊", layout="wide", initial_sidebar_state="collapsed")
 st.markdown("""
 <style>
 /* Soft Apple-style Traditional Chinese typography, no external font downloads. */
@@ -29,22 +28,17 @@ html, body, .stApp, [data-testid="stAppViewContainer"],
   -webkit-font-smoothing:antialiased;
   text-rendering:optimizeLegibility;
 }
-.block-container{padding-top:1.55rem;max-width:1080px;padding-bottom:3rem;}
-.stApp{background-color:#f8fafc;}
-h1,h2,h3{color:#172435;}
-[data-testid="stVerticalBlockBorderWrapper"]{border-radius:16px;}
-[data-testid="stDataFrame"]{border-radius:12px;}
-[data-testid="stCaptionContainer"] p{color:#6b7786;}
+.block-container{padding-top:1.15rem;max-width:1100px;padding-bottom:3rem;}
 h1,h2,h3{overflow-wrap:anywhere;letter-spacing:.018em !important;line-height:1.42 !important;}
-h1{font-size:1.90rem;font-weight:600 !important;letter-spacing:.01em !important;}
-h2{font-weight:570 !important;}
-h3{font-weight:550 !important;}
+h1{font-size:1.95rem;font-weight:610 !important;}
+h2{font-weight:590 !important;}
+h3{font-weight:570 !important;}
 p,li{line-height:1.68;letter-spacing:.012em;}
 [data-testid="stCaptionContainer"] p{line-height:1.62;color:inherit;}
 [data-testid="stWidgetLabel"] p{font-weight:480 !important;letter-spacing:.012em;}
 .stButton>button, [data-testid="stBaseButton-primary"]{
-  border-radius:12px !important;
-  font-weight:550 !important;
+  border-radius:14px !important;
+  font-weight:560 !important;
   letter-spacing:.025em;
   min-height:2.85rem;
 }
@@ -133,8 +127,7 @@ def run_stock_scan(opts):
                 info["data"], companies, info["effective_date"],
                 min_vol_lots=opts["min_vol"],
                 min_turnover_100m=opts["min_money"],
-                min_price=opts["min_price"], max_price=opts["max_price"],
-                signal_days=opts["signal_days"],
+                min_price=opts["min_price"], signal_days=opts["signal_days"],
                 top_n=25, enabled_categories=opts["targets"],
                 ma_windows=opts["ma_windows"])
             for ranking in (bottom, top):
@@ -150,7 +143,6 @@ def run_stock_scan(opts):
                     "min_vol": opts["min_vol"],
                     "min_money": opts["min_money"],
                     "min_price": opts["min_price"],
-                    "max_price": opts["max_price"],
                     "signal_days": opts["signal_days"],
                     "targets": list(opts["targets"]),
                     "ma_windows": list(opts["ma_windows"]),
@@ -307,11 +299,11 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame, eff
 
 
 if "scan_future" in st.session_state:
-    st.title("台股 K 棒型態搜尋器")
+    st.title("📊 台股 K 棒搜尋器")
     render_waiting_ad()
     st.stop()
 
-st.title('台股 K 棒型態搜尋器')
+st.title('📊 台股 K 棒搜尋器')
 show_online_count()
 st.caption('台灣上市普通股｜可選搜尋條件：K 棒反轉、均線突破／跌破、W 底／M 頭｜頂底各 Top 25')
 if "scan_error" in st.session_state:
@@ -320,7 +312,7 @@ if "scan_error" in st.session_state:
 # Search controls belong in the page itself (not the sidebar) to avoid
 # Safari's narrow overlay and oversized text clipping on iPhone.
 with st.container(border=True):
-    st.subheader('搜尋條件設定')
+    st.subheader('🔎 搜尋條件')
     c_date, c_volume = st.columns(2)
     with c_date:
         query_date = st.date_input('查詢日期', value=last_weekday(),
@@ -329,36 +321,13 @@ with st.container(border=True):
     with c_volume:
         min_vol = st.number_input('20 日均量下限（張）', min_value=0,
             max_value=100000, value=1000, step=500)
-    st.markdown('**流動性與股價範圍**')
-    min_money = st.number_input('20 日平均成交金額下限（億元）',
-        min_value=0.0, max_value=500.0, value=3.0, step=.5, format='%.1f',
-        help='預設每日平均成交金額至少 3 億元，可依需要自行調低。')
-    st.caption('預設近 20 個交易日平均每天成交至少 3 億元；此項是成交金額，不是公司營業額。')
-    c_low, c_high = st.columns(2)
-    with c_low:
-        min_price_text = st.text_input('最低股價（元）', value='',
-            placeholder='留白＝原預設 10 元', help='不填維持原本最低 10 元限制。')
-    with c_high:
-        max_price_text = st.text_input('最高股價（元）', value='',
-            placeholder='留白＝不設上限', help='不填代表不限制最高股價。')
-
-    # Preserve the original minimum when empty; use no upper bound by default.
-    price_error = None
-    try:
-        min_price = float(min_price_text.strip()) if min_price_text.strip() else 10.0
-        max_price = float(max_price_text.strip()) if max_price_text.strip() else None
-        if not isfinite(min_price) or min_price < 0:
-            raise ValueError('最低股價必須是 0 以上的數字。')
-        if max_price is not None:
-            if not isfinite(max_price) or max_price < 0:
-                raise ValueError('最高股價必須是 0 以上的數字。')
-            if max_price < min_price:
-                raise ValueError('最高股價不可低於最低股價。')
-    except ValueError as exc:
-        price_error = str(exc) if str(exc) and 'could not convert' not in str(exc) else '請輸入有效股價數字，或保持空白。'
-        min_price, max_price = 10.0, None
-    if price_error:
-        st.error(price_error)
+    c_money, c_price = st.columns(2)
+    with c_money:
+        min_money = st.number_input('20 日均成交金額（億元）',
+            min_value=0.0, max_value=500.0, value=1.0, step=.5, format='%.1f')
+    with c_price:
+        min_price = st.number_input('最低股價（元）',
+            min_value=0.0, max_value=3000.0, value=10.0, step=5.0, format='%.1f')
     st.markdown('**選擇搜尋型態（可複選）**')
     select_kbar = st.checkbox('K 棒頂部／底部反轉', value=True)
     select_ma = st.checkbox('均線突破／跌破', value=True)
@@ -381,10 +350,10 @@ with st.container(border=True):
         signal_days = st.select_slider('最近幾個交易日出現訊號',
             options=[1,2,3,4,5],value=3)
         history_days = st.slider('歷史回溯天數',120,250,165,5)
-    valid_targets = bool(targets) and (not select_ma or bool(ma_windows)) and not price_error
+    valid_targets = bool(targets) and (not select_ma or bool(ma_windows))
     if not targets:
         st.warning('請至少勾選一種搜尋型態。')
-    run = st.button('開始搜尋上市股票',type='primary',
+    run = st.button('🔍 開始搜尋上市股票',type='primary',
         use_container_width=True, disabled=not valid_targets)
     st.caption('搜尋時同步顯示贊助內容，行情分析完成即呈現結果。')
 
@@ -392,7 +361,6 @@ if run:
     criteria = {
         "query_date": query_date, "min_vol": min_vol,
         "min_money": min_money, "min_price": min_price,
-        "max_price": max_price,
         "targets": list(targets), "ma_windows": list(ma_windows),
         "signal_days": signal_days, "history_days": history_days,
     }
