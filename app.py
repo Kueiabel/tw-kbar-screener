@@ -210,6 +210,7 @@ def run_stock_scan(opts):
                 ma_windows=opts["ma_windows"],
                 hammer_only_bottom=opts["hammer_only_bottom"],
                 require_above_ma5=opts["require_above_ma5"],
+                require_all_signals=opts["require_all_signals"],
                 min_history_bars=required_bars,
                 daily_liquidity=liquidity)
             for ranking in (bottom, top):
@@ -233,6 +234,7 @@ def run_stock_scan(opts):
                     "targets": list(opts["targets"]),
                     "hammer_only_bottom": opts["hammer_only_bottom"],
                     "require_above_ma5": opts["require_above_ma5"],
+                    "require_all_signals": opts["require_all_signals"],
                     "ma_windows": list(opts["ma_windows"]),
                 },
             }
@@ -273,7 +275,9 @@ EXPORT_FIELDS = {
     'score':'評分','signal_date':'訊號日期','age':'距今交易日',
     'close':'最新收盤價','change_pct':'當日漲跌幅(%)','volume_lots':'當日成交量(張)',
     'avg_volume_lots':'20日均量(張)','avg_turnover_100m':'20日均成交金額(億元)',
-    'volume_ratio':'訊號日量比','sma20':'20日均線','explanation':'判斷依據'
+    'volume_ratio':'訊號日量比','sma20':'20日均線',
+    'matched_patterns':'符合型態','matched_categories':'符合搜尋項目',
+    'matched_count':'符合型態數','explanation':'判斷依據'
 }
 
 
@@ -348,6 +352,8 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame,
         return
     shown = frame.rename(columns={
         'rank':'排名','code':'代號','name':'股票名稱','industry':'產業類別','category':'搜尋類別','pattern':'型態','stage':'階段',
+        'matched_patterns':'符合型態','matched_categories':'符合搜尋項目',
+        'matched_count':'符合型態數',
         'score':'分數','signal_date':'訊號日期','age':'距今天數(交易日)',
         'close':'收盤價','change_pct':'漲跌幅 %',
         'volume_lots':'今日量(張)','avg_volume_lots':'20日均量(張)',
@@ -360,7 +366,7 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame,
     for _, item in frame.head(5).iterrows():
         code = escape(str(item['code']))
         name = escape(str(item['name']))
-        pattern = escape(str(item['pattern']))
+        pattern = escape(str(item.get('matched_patterns', item['pattern'])))
         stage = escape(str(item['stage']))
         industry_value = item.get('industry', '未分類')
         industry = escape(str(industry_value)) if pd.notna(industry_value) else '未分類'
@@ -371,21 +377,22 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame,
             f'<span class="qs-stock-name"><span class="qs-stock-code">{code}</span>{name}</span>'
             f'<span class="qs-stock-score">{score} 分</span>'
             '</div><div class="qs-stock-bottom">'
-            f'<span class="qs-stock-industry">產業：{industry}</span> · {pattern} · {stage}'
-            f' · 收盤 {price:,.2f} 元'
+            f'<span class="qs-stock-industry">產業：{industry}</span> · 收盤 {price:,.2f} 元'
+            f'<div>符合型態：{pattern}</div><div>主要訊號階段：{stage}</div>'
             '</div></div>'
         )
     st.markdown('<div class="qs-rows">' + ''.join(quick_rows) + '</div>',
                 unsafe_allow_html=True)
     with st.expander('查看完整榜單（最多 25 檔）', expanded=False):
-        st.dataframe(shown[['排名','代號','股票名稱','產業類別','型態','分數','收盤價']],
+        st.dataframe(shown[['排名','代號','股票名稱','產業類別','符合型態','分數','收盤價']],
             hide_index=True,use_container_width=True,height=min(35*len(frame)+44,900),
             column_config={'分數':st.column_config.ProgressColumn(
                 '分數',min_value=0,max_value=100,format='%d'),
                 '收盤價':st.column_config.NumberColumn('收盤價',format='%.2f')})
     with st.expander('更多欄位（成交量、成交金額、日期等）'):
         st.dataframe(shown[['排名','代號','股票名稱','產業類別',
-            '搜尋類別','型態','階段','分數','訊號日期','收盤價',
+            '搜尋類別','符合型態','符合搜尋項目','符合型態數',
+            '階段','分數','訊號日期','收盤價',
             '漲跌幅 %','今日量(張)','20日均量(張)','20日均成交額(億)','量比']],
             hide_index=True,use_container_width=True,
             column_config={'漲跌幅 %':st.column_config.NumberColumn(
@@ -407,7 +414,8 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame,
         c.metric('20 日均成交額',f"{rec['avg_turnover_100m']:.2f} 億")
         d.metric('訊號日期',str(rec['signal_date']))
         st.markdown(f"**{rec['code']} {rec['name']}**　｜　產業：**{rec.get('industry','未分類')}**")
-        st.markdown(f"**{rec['pattern']}**　｜　{rec['stage']}　｜　{rec['explanation']}")
+        st.markdown(f"**符合型態：{rec.get('matched_patterns', rec['pattern'])}**")
+        st.markdown(f"**主要訊號階段：{rec['stage']}**　｜　{rec['explanation']}")
         render_chart(full_data,rec,side,timeframe)
         st.caption('標記位置為型態「辨識／確認」日期。紅 K 為上漲、綠 K 為下跌。'
                    + ('週 K 採完整交易週，均線為週均線。' if timeframe == 'W'
@@ -491,11 +499,15 @@ with search_panel:
         help='勾選後，只保留最新收盤價高於最近五根 K 棒收盤均價的股票。日 K 是五日線；週 K 是五週線。這是價格位置條件，不是黃金交叉。')
     st.caption('日 K＝站上五日線；週 K＝站上五週線。可自行勾選，不影響其他型態設定。')
     st.markdown('**搜尋訊號（可複選）**')
-    st.caption('預設只搜尋「晨星三 K 確認」；以下其他型態均為選用。')
+    st.caption('預設搜尋晨星反轉與多頭十字星；任一符合即可入榜，亦可改為全部符合。')
     select_morning = st.checkbox(
         '晨星反轉（三根 K：長黑 → 小實體止跌 → 紅 K 確認）',
         value=True,
         help='下跌近低檔，第一根黑 K、第二根小實體、第三根紅 K 收盤站上第一根 K 棒實體中點；搜尋最近 1～5 根 K 的確認訊號。')
+    select_bull_doji = st.checkbox(
+        '多頭十字星（跌勢低檔的小實體止跌 K）',
+        value=True,
+        help='低檔出現近似開收同價的小實體 K 棒，代表可能止跌但尚未確認起漲。')
     select_hammer = st.checkbox('錘頭隔日突破', value=False,
         help='下跌後長下影錘頭，下一根紅 K 收盤突破錘頭最高價 0.3% 以上。')
     low_rebound = st.checkbox('低點止跌後突破', value=False,
@@ -508,9 +520,17 @@ with search_panel:
         options=['MACD 交叉', 'KD 交叉', 'RSI 回升／轉弱'],
         default=[],
         help='勾選後才會加入篩選；不會自動啟用。')
+    require_all_signals = st.checkbox(
+        '必須符合所有勾選型態（交集搜尋）',
+        value=False,
+        help='不勾選：符合任一所勾選的訊號便入榜；勾選：同一檔股票必須在所選觀察天數內符合全部勾選的訊號。基本成交額與 MA5 等條件始終是必須符合的過濾條件。')
+    if require_all_signals:
+        st.caption('交集模式：所有勾選訊號都必須出現（可在觀察期間的不同 K 棒）；條件較嚴格，可能沒有結果。')
     targets = []
     if select_morning:
         targets.append('晨星反轉')
+    if select_bull_doji:
+        targets.append('多頭十字星')
     if select_hammer:
         targets.append('錘頭隔日突破')
     if low_rebound:
@@ -548,6 +568,7 @@ if run:
         "targets": list(targets), "ma_windows": list(ma_windows),
         "hammer_only_bottom": False,
         "require_above_ma5": require_above_ma5,
+        "require_all_signals": require_all_signals,
         "signal_days": signal_days, "history_days": history_days,
     }
     st.session_state["scan_future"] = _search_pool()["executor"].submit(
@@ -587,7 +608,9 @@ if 'results' in st.session_state:
     )
     st.markdown('<div class="qs-stats">' + stat_html + '</div>',
                 unsafe_allow_html=True)
-    st.caption(f'只依勾選的訊號搜尋盤後{frame_label}；預設為晨星三 K 確認。評分不是勝率。')
+    mode_label = ('全部勾選型態均符合' if r['criteria'].get('require_all_signals')
+                  else '符合任一勾選型態即可')
+    st.caption(f'{mode_label} · 盤後{frame_label}。每檔列出實際符合的型態；評分不是勝率。')
     tabs=st.tabs(['底部候選 Top 25','頂部候選 Top 25','判斷規則'])
     with tabs[0]:
         render_rankings(r['bottom'],'bottom',r['data'],effective_date,
@@ -599,11 +622,12 @@ if 'results' in st.session_state:
         st.markdown('''
 **判斷型態**
 
-- **底部預設：** 晨星三 K 確認（下跌後長黑 K、小實體止跌 K、紅 K 收復首根實體中點）。搜尋最近選定的訊號天數；不保證每日都會出現。
+- **底部預設：** 晨星三 K 確認（長黑 K、小實體止跌 K、紅 K 確認）及多頭十字星（跌勢低檔的小實體十字 K，屬提前觀察）。
+- **組合方式：** 預設符合任一勾選型態就列入；勾選「必須符合所有」時，同一股票需在選定觀察天數內符合全部勾選訊號，可在不同交易日成立。成交量、成交金額、股價及可選 MA5 屬於必須符合的基本過濾條件。
 - **底部其他可選：** 錘頭隔日突破、低點止跌後突破、其他 K 棒反轉、W 底／M 頭、均線及 MACD／KD／RSI。未勾選時不參與搜尋。
 - **頂部：** 流星線（長上影）、空頭吞噬、夜星三 K、突破前高後跌回、局部高點二 K 確認、M 頭雛形／跌破頸線、20 日區間向下跌破。
 - **評分：** 型態基本分＋流動性＋訊號日量比＋均線位置／方向－訊號距今交易日的時間折減，最高 100 分。分數不能解讀為上漲或下跌的機率。
-- **榜單：** 每檔最多入選一次，採用該檔最符合條件的訊號。只有符合條件才列入，可能不足 25 檔。
+- **榜單：** 每檔最多入選一次，但會列出全部匹配的型態；分數以最高分訊號為準。只有符合條件才列入，可能不足 25 檔。
 
 **務必留意**
 
