@@ -137,33 +137,44 @@ def shopee_affiliate_url() -> str:
     return SHOPEE_OWNER_LINK
 
 
+HAIRCARE_PROMOTIONS = (
+    ("haircare_banner.webp.b64", SHOPEE_OWNER_LINK,
+     "柳屋養髮液", "每天研究大盤，也別忘了頭頂這盤。"),
+    ("haircare_ampoule_banner.webp.b64", "https://s.shopee.tw/AUvR9e7H9n",
+     "柳屋髮根精華液安瓶", "投資分散配置，保養隨身配置。"),
+)
+
+
 @st.cache_data(show_spinner=False)
-def _haircare_banner_data() -> str:
+def _haircare_banner_data(filename: str) -> str:
     from pathlib import Path
     try:
-        return (Path(__file__).resolve().parent / "haircare_banner.webp.b64").read_text(encoding="ascii").strip()
+        return (Path(__file__).resolve().parent / filename).read_text(encoding="ascii").strip()
     except OSError:
         return ""
 
 
 def render_affiliate_promotion(compact: bool = False):
-    affiliate = shopee_affiliate_url()
-    if not affiliate:
-        return
-    banner = _haircare_banner_data()
-    if banner:
-        st.markdown(
-            '<a href="' + escape(affiliate, quote=True) + '" target="_blank" '
-            'rel="sponsored noopener noreferrer" aria-label="廣告：柳屋養髮液，前往蝦皮查看商品" '
-            'style="display:block;border-radius:14px;overflow:hidden;line-height:0;margin:.4rem 0;">'
-            '<img src="data:image/webp;base64,' + banner + '" '
-            'alt="廣告：每天研究大盤，也別忘了頭頂這盤。柳屋養髮液，蝦皮看看好物。" '
-            'width="1536" height="1024" '
-            'style="display:block;width:100%;height:auto;" /></a>',
-            unsafe_allow_html=True)
-    else:
-        st.caption("廣告 · 柳屋養髮液")
-    st.link_button("蝦皮查看商品 ↗", affiliate, use_container_width=True)
+    # Each product keeps its own destination. Columns stack naturally on mobile.
+    columns = st.columns(2)
+    for column, (filename, affiliate, title, tagline) in zip(columns, HAIRCARE_PROMOTIONS):
+        with column:
+            banner = _haircare_banner_data(filename)
+            if banner:
+                st.markdown(
+                    '<a href="' + escape(affiliate, quote=True) + '" target="_blank" '
+                    'rel="sponsored noopener noreferrer" aria-label="' +
+                    escape("廣告：" + title + "，前往蝦皮查看商品", quote=True) + '" '
+                    'style="display:block;border-radius:14px;overflow:hidden;line-height:0;margin:.4rem 0;">'
+                    '<img src="data:image/webp;base64,' + banner + '" '
+                    'alt="' + escape("廣告：" + title + "。" + tagline, quote=True) + '" '
+                    'width="1536" height="1024" '
+                    'style="display:block;width:100%;height:auto;" /></a>',
+                    unsafe_allow_html=True)
+            else:
+                st.caption("廣告 · " + title)
+            st.link_button("蝦皮查看" + title + " ↗", affiliate,
+                           use_container_width=True)
 
 
 @st.cache_resource(show_spinner=False)
