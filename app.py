@@ -209,6 +209,7 @@ def run_stock_scan(opts):
                 top_n=25, enabled_categories=opts["targets"],
                 ma_windows=opts["ma_windows"],
                 hammer_only_bottom=opts["hammer_only_bottom"],
+                require_above_ma5=opts["require_above_ma5"],
                 min_history_bars=required_bars,
                 daily_liquidity=liquidity)
             for ranking in (bottom, top):
@@ -231,6 +232,7 @@ def run_stock_scan(opts):
                     "signal_days": opts["signal_days"],
                     "targets": list(opts["targets"]),
                     "hammer_only_bottom": opts["hammer_only_bottom"],
+                    "require_above_ma5": opts["require_above_ma5"],
                     "ma_windows": list(opts["ma_windows"]),
                 },
             }
@@ -482,6 +484,12 @@ with search_panel:
         price_error = '股價請輸入有效數字（例如 30、150.5），也可以留白。'
     if price_error:
         st.error(price_error)
+    st.markdown('**基本篩選條件**')
+    require_above_ma5 = st.checkbox(
+        '最新收盤價站上 MA5（五期均線）',
+        value=False,
+        help='勾選後，只保留最新收盤價高於最近五根 K 棒收盤均價的股票。日 K 是五日線；週 K 是五週線。這是價格位置條件，不是黃金交叉。')
+    st.caption('日 K＝站上五日線；週 K＝站上五週線。可自行勾選，不影響其他型態設定。')
     st.markdown('**搜尋訊號（可複選）**')
     select_kbar = st.checkbox('K 棒頂部／底部反轉', value=True)
     hammer_only_bottom = st.checkbox(
@@ -541,6 +549,7 @@ if run:
         "max_price": max_price,
         "targets": list(targets), "ma_windows": list(ma_windows),
         "hammer_only_bottom": hammer_only_bottom,
+        "require_above_ma5": require_above_ma5,
         "signal_days": signal_days, "history_days": history_days,
     }
     st.session_state["scan_future"] = _search_pool()["executor"].submit(
