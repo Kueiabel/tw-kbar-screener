@@ -151,25 +151,33 @@ def shopee_affiliate_url() -> str:
     return SHOPEE_OWNER_LINK
 
 
+@st.cache_data(show_spinner=False)
+def _haircare_banner_data() -> str:
+    from pathlib import Path
+    try:
+        return (Path(__file__).resolve().parent / "haircare_banner.webp.b64").read_text(encoding="ascii").strip()
+    except OSError:
+        return ""
+
+
 def render_affiliate_promotion(compact: bool = False):
     affiliate = shopee_affiliate_url()
     if not affiliate:
         return
-    with st.container(border=True):
-        st.caption("廣告 · 蝦皮聯盟推廣（點擊購買可能產生分潤）")
-        if compact:
-            ad_info, ad_action = st.columns([3, 2], vertical_alignment="center")
-            with ad_info:
-                st.markdown("**蝦皮購物**")
-                st.caption("站外推廣 · 自由選擇是否點擊")
-            with ad_action:
-                st.link_button("前往蝦皮 ↗", affiliate,
-                               use_container_width=True)
-        else:
-            st.markdown("**蝦皮購物推廣連結**")
-            st.link_button("前往蝦皮購物 ↗", affiliate,
-                           use_container_width=True)
-            st.caption("此為自願點擊的站外推廣連結，不影響股票搜尋結果。")
+    banner = _haircare_banner_data()
+    if banner:
+        st.markdown(
+            '<a href="' + escape(affiliate, quote=True) + '" target="_blank" '
+            'rel="sponsored noopener noreferrer" aria-label="廣告：柳屋養髮液，前往蝦皮查看商品" '
+            'style="display:block;border-radius:14px;overflow:hidden;line-height:0;margin:.4rem 0;">'
+            '<img src="data:image/webp;base64,' + banner + '" '
+            'alt="廣告：每天研究大盤，也別忘了頭頂這盤。柳屋養髮液，蝦皮看看好物。" '
+            'width="1536" height="1024" '
+            'style="display:block;width:100%;height:auto;" /></a>',
+            unsafe_allow_html=True)
+    else:
+        st.caption("廣告 · 柳屋養髮液")
+    st.link_button("蝦皮查看商品 ↗", affiliate, use_container_width=True)
 
 
 @st.cache_resource(show_spinner=False)
