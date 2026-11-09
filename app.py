@@ -157,7 +157,8 @@ def run_stock_scan(opts):
                 min_price=opts["min_price"], max_price=opts["max_price"],
                 signal_days=opts["signal_days"],
                 top_n=25, enabled_categories=opts["targets"],
-                ma_windows=opts["ma_windows"])
+                ma_windows=opts["ma_windows"],
+                hammer_only_bottom=opts["hammer_only_bottom"])
             for ranking in (bottom, top):
                 if not ranking.empty:
                     ranking["industry"] = ranking["code"].map(
@@ -174,6 +175,7 @@ def run_stock_scan(opts):
                     "max_price": opts["max_price"],
                     "signal_days": opts["signal_days"],
                     "targets": list(opts["targets"]),
+                    "hammer_only_bottom": opts["hammer_only_bottom"],
                     "ma_windows": list(opts["ma_windows"]),
                 },
             }
@@ -417,6 +419,12 @@ with search_panel:
         st.error(price_error)
     st.markdown('**搜尋訊號（可複選）**')
     select_kbar = st.checkbox('K 棒頂部／底部反轉', value=True)
+    hammer_only_bottom = st.checkbox(
+        '底部僅顯示「錘頭隔日突破」',
+        value=True,
+        help='嚴格規則：前一日為低檔錘頭，隔日收紅且收盤突破錘頭最高價 0.3% 以上；只列出最新完成交易日的突破。頂部榜單不受影響。')
+    if hammer_only_bottom:
+        st.caption('底部榜單只列符合錘頭隔日突破的股票。其他型態或均線仍可用於頂部榜單；取消勾選才能混合搜尋底部訊號。')
     select_ma = st.checkbox('均線突破／跌破', value=True)
     include_wm = st.checkbox('W 底／M 頭', value=False)
     st.caption('更多常用訊號（選填，預設不啟用）')
@@ -461,6 +469,7 @@ if run:
         "min_money": min_money, "min_price": min_price,
         "max_price": max_price,
         "targets": list(targets), "ma_windows": list(ma_windows),
+        "hammer_only_bottom": hammer_only_bottom,
         "signal_days": signal_days, "history_days": history_days,
     }
     st.session_state["scan_future"] = _search_pool()["executor"].submit(
@@ -496,7 +505,10 @@ if 'results' in st.session_state:
     )
     st.markdown('<div class="qs-stats">' + stat_html + '</div>',
                 unsafe_allow_html=True)
-    st.caption('錘頭訊號：首日錘頭、次日收盤突破；次日盤後即可取得名單，供第三個交易日參考。評分不是勝率。')
+    strict = r['criteria'].get('hammer_only_bottom', False)
+    st.caption(('底部榜單僅列錘頭隔日突破確認，其他反轉不混入。' if strict
+                else '底部榜單包含所有勾選的反轉型態。')
+               + ' 名單使用盤後日 K；評分不是勝率。')
     tabs=st.tabs(['底部候選 Top 25','頂部候選 Top 25','判斷規則'])
     with tabs[0]:
         render_rankings(r['bottom'],'bottom',r['data'],effective_date)
