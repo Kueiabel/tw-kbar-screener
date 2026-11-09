@@ -298,12 +298,21 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame, eff
     st.caption('標記位置為型態「辨識／確認」日期，不一定是實際高低點當天。紅 K 為上漲、綠 K 為下跌。52 日均線在資料不足時不顯示。')
 
 
+# Mobile home-screen users have no obvious browser refresh control.
+# This reruns the Streamlit page without interrupting an active scan.
+header_main, header_refresh = st.columns([5, 2], vertical_alignment="center")
+with header_main:
+    st.title('📊 台股 K 棒搜尋器')
+with header_refresh:
+    if st.button('↻ 更新畫面', key='refresh_page', use_container_width=True,
+                 disabled='scan_future' in st.session_state,
+                 help='重新整理網站畫面；若需最新選股結果，請再執行搜尋。'):
+        st.rerun()
+
 if "scan_future" in st.session_state:
-    st.title("📊 台股 K 棒搜尋器")
     render_waiting_ad()
     st.stop()
 
-st.title('📊 台股 K 棒搜尋器')
 show_online_count()
 st.caption('台灣上市普通股｜可選搜尋條件：K 棒反轉、均線突破／跌破、W 底／M 頭｜頂底各 Top 25')
 if "scan_error" in st.session_state:
