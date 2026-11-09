@@ -201,9 +201,14 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
         add("bottom", "蜻蜓十字星", 42, "跌勢末端的長下影十字星；仍需後續紅 K 確認", "提前預警")
     if is_doji and upper >= .65*span and lower <= .15*span and near_top and prior_up:
         add("top", "墓碑十字星", 42, "漲勢末端的長上影十字星；仍需後續黑 K 確認", "提前預警")
+    # Independently selectable bullish doji. It must form near a recent low
+    # after a decline; a doji alone is an early warning, NOT a confirmed rise.
+    if is_doji and near_bottom and prior_down and (
+            lower >= .15*span or upper >= .15*span):
+        add("bottom", "多頭十字星", 35,
+            "跌勢低檔出現小實體十字星，顯示賣壓可能放緩；仍待後續紅 K 確認",
+            "提前觀察", category="多頭十字星")
     if is_doji and lower >= .20*span and upper >= .20*span:
-        if near_bottom and prior_down:
-            add("bottom", "多頭十字星", 31, "下跌後出現多空猶豫十字星；尚未確認止跌", "提前預警")
         if near_top and prior_up:
             add("top", "空頭十字星", 31, "上漲後出現多空猶豫十字星；尚未確認見頂", "提前預警")
     if upper >= 2*max(body, span*.08) and upper >= span*.52 and lower <= span*.23 and near_bottom and prior_down:
@@ -355,7 +360,8 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
            top_n: int = 25, enabled_categories=("K 棒反轉",),
            ma_windows=(20,52), hammer_only_bottom: bool = False,
            min_history_bars: int = 65, daily_liquidity: dict | None = None,
-           require_above_ma5: bool = False):
+           require_above_ma5: bool = False,
+           require_all_signals: bool = False):
     """Returns (bottom dataframe, top dataframe, diagnostics, selected price dataframe).
 
     No substitution of unqualified stocks to reach 25; displays fewer if necessary.
@@ -432,12 +438,44 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
         if code_signals:
             with_patterns += 1
     final = []
+    chosen_categories = set(enabled_categories)
     for side in ("bottom", "top"):
         frame = pd.DataFrame(result[side])
         if not frame.empty:
-            frame = (frame.sort_values(["score","age","avg_turnover_100m"],ascending=[False,True,False])
-                     .drop_duplicates("code").head(top_n).reset_index(drop=True))
-            frame.insert(0,"rank",np.arange(1,len(frame)+1))
+            # Gather every distinct signal for a stock across the selected
+            # lookback window; do not lose additional patterns during ranking.
+            frame = frame.sort_values(
+                ["score", "age", "avg_turnover_100m"],
+                ascending=[False, True, False])
+            combined = []
+            for code, matches in frame.groupby("code", sort=False):
+                matched_categories = set(matches["category"].astype(str))
+                if require_all_signals and not chosen_categories.issubset(matched_categories):
+                    continue
+                best = matches.iloc[0].to_dict()
+                unique_patterns = list(dict.fromkeys(matches["pattern"].astype(str)))
+                unique_cats = list(dict.fromkeys(matches["category"].astype(str)))
+                best["matched_patterns"] = "、".join(unique_patterns)
+                best["matched_categories"] = "、".join(unique_cats)
+                best["matched_count"] = len(unique_patterns)
+                best["pattern"] = best["matched_patterns"]
+                # The best-scoring signal sets the score, while the explanation
+                # includes the latest dates for all different matched patterns.
+                notes = []
+                seen = set()
+                for match in matches.sort_values("age").itertuples(index=False):
+                    if match.pattern not in seen:
+                        notes.append(f"{match.pattern}（{match.signal_date}）：{match.explanation}")
+                        seen.add(match.pattern)
+                best["explanation"] = "；".join(notes)
+                combined.append(best)
+            frame = pd.DataFrame(combined)
+            if not frame.empty:
+                frame = frame.sort_values(
+                    ["score", "matched_count", "age", "avg_turnover_100m"],
+                    ascending=[False, False, True, False]
+                ).head(top_n).reset_index(drop=True)
+                frame.insert(0, "rank", np.arange(1, len(frame) + 1))
         final.append(frame)
     diag = {"covered": covered, "liquid": liquid, "matched":with_patterns, "listed":len(companies),
             "bottom_candidates":len(result['bottom']),"top_candidates":len(result['top'])}
