@@ -247,6 +247,98 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
         add("bottom", "跌破前低後收回", 45, f"盤中跌破近 20 日低點 {r20_low:.2f}，收盤站回")
     if hi > r20_high*1.008 and cl < r20_high*.996 and cl < op:
         add("top", "突破前高後跌回", 45, f"盤中突破近 20 日高點 {r20_high:.2f}，收盤跌回")
+    # Independently selectable article candlestick patterns. All of these
+    # have distinct categories; no label is exposed without real OHLC logic.
+    prev_body = abs(c[-2] - o[-2])
+    prev_span = max(float(h[-2] - l[-2]), 1e-8)
+    prev_bear = c[-2] < o[-2]
+    prev_bull = c[-2] > o[-2]
+    cur_bull = cl > op
+    cur_bear = cl < op
+    down_context = prior_down and near_bottom
+    up_context = prior_up and near_top
+    if "低檔垂頭線" in allowed and _hammer_at(o,h,l,c,-1):
+        add("bottom", "低檔垂頭線", 38,
+            "低檔短實體、長下影；僅為反轉候選，還沒有隔日突破確認",
+            "提前觀察", category="低檔垂頭線")
+    if "高檔上吊線" in allowed and up_context and (
+            lower >= 2*max(body,span*.08) and lower >= span*.52
+            and upper <= span*.23):
+        add("top", "高檔上吊線", 37,
+            "上漲後長下影與短實體，仍待後續轉弱確認",
+            "提前觀察", category="高檔上吊線")
+    if "低檔倒垂頭線" in allowed and down_context and (
+            upper >= 2*max(body,span*.08) and upper >= span*.52
+            and lower <= span*.23):
+        add("bottom", "低檔倒垂頭線", 36,
+            "跌勢末端長上影小實體，尚未確認上漲",
+            "提前觀察", category="低檔倒垂頭線")
+    if "高檔流星線" in allowed and up_context and (
+            upper >= 2*max(body,span*.08) and upper >= span*.52
+            and lower <= span*.23):
+        add("top", "高檔流星線", 37,
+            "漲勢末端長上影小實體，仍待轉弱確認",
+            "提前觀察", category="高檔流星線")
+    if "多頭吞噬" in allowed and down_context and prev_bear and cur_bull and (
+            op <= c[-2]*1.002 and cl >= o[-2]*.998
+            and body >= prev_body*.95):
+        add("bottom", "多頭吞噬", 47,
+            "低檔紅 K 實體包覆前一根黑 K 實體",
+            category="多頭吞噬")
+    if "空頭吞噬" in allowed and up_context and prev_bull and cur_bear and (
+            op >= c[-2]*.998 and cl <= o[-2]*1.002
+            and body >= prev_body*.95):
+        add("top", "空頭吞噬", 47,
+            "高檔黑 K 實體包覆前一根紅 K 實體",
+            category="空頭吞噬")
+    # Harami (mother-child body containment).
+    if "多頭孕育線" in allowed and down_context and prev_bear and cur_bull and (
+            prev_body >= prev_span*.45 and body <= prev_body*.6
+            and min(op,cl) >= c[-2] and max(op,cl) <= o[-2]):
+        add("bottom", "多頭孕育線", 41,
+            "下跌長黑 K 後出現包在前根實體內的小紅 K（子母線）",
+            "提前觀察", category="多頭孕育線")
+    if "空頭孕育線" in allowed and up_context and prev_bull and cur_bear and (
+            prev_body >= prev_span*.45 and body <= prev_body*.6
+            and min(op,cl) >= o[-2] and max(op,cl) <= c[-2]):
+        add("top", "空頭孕育線", 41,
+            "上漲長紅 K 後出現包在前根實體內的小黑 K（子母線）",
+            "提前觀察", category="空頭孕育線")
+    # Piercing / dark-cloud cover: first body midpoint is reclaimed/lost.
+    if "穿刺線" in allowed and down_context and prev_bear and cur_bull and (
+            prev_body >= prev_span*.45 and op <= c[-2]*1.005
+            and cl > (o[-2]+c[-2])/2 and cl < o[-2]*1.004):
+        add("bottom", "穿刺線", 46,
+            "下跌長黑 K 後紅 K 收回前根實體中點以上",
+            category="穿刺線")
+    if "烏雲蓋頂" in allowed and up_context and prev_bull and cur_bear and (
+            prev_body >= prev_span*.45 and op >= c[-2]*.995
+            and cl < (o[-2]+c[-2])/2 and cl > o[-2]*.996):
+        add("top", "烏雲蓋頂", 46,
+            "上漲長紅 K 後黑 K 跌破前根實體中點",
+            category="烏雲蓋頂")
+    # Standalone evening star (night star), same family as morning star.
+    if "夜星反轉" in allowed and len(c) >= 35:
+        body0, body1, body2 = (
+            abs(c[-3]-o[-3]), abs(c[-2]-o[-2]), abs(c[-1]-o[-1]))
+        if (c[-4] >= c[-12]*1.02 and prev_body > 0
+                and c[-3] > o[-3]
+                and body0 >= (h[-3]-l[-3])*.4
+                and body1 <= body0*.5
+                and cur_bear and body2 >= body0*.4
+                and cl < (o[-3]+c[-3])/2):
+            add("top", "夜星三 K 確認", 62,
+                "漲勢末端長紅 K、小實體、長黑 K 跌破第一根實體中點",
+                "三 K 確認", category="夜星反轉")
+    # Price gaps use two completed bars; no look-ahead.
+    if "向上跳空" in allowed and h[-2] > 0 and lo > h[-2]*1.001 and cur_bull:
+        add("bottom", "向上跳空缺口", 43,
+            "本期最低價高於前期最高價，出現尚未回補的上方缺口",
+            category="向上跳空")
+    if "向下跳空" in allowed and l[-2] > 0 and hi < l[-2]*.999 and cur_bear:
+        add("top", "向下跳空缺口", 43,
+            "本期最高價低於前期最低價，出現尚未回補的下方缺口",
+            category="向下跳空")
     # Optional, separately selectable patterns (off by default).
     if "W 底／M 頭" in allowed:
         for side in ("bottom", "top"):
