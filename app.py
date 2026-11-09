@@ -144,10 +144,11 @@ def shopee_affiliate_url() -> str:
     parsed = urlparse(configured)
     host = (parsed.hostname or "").lower()
     allowed = ("shopee.tw", "shope.ee", "shp.ee")
-    if parsed.scheme != "https" or not any(
+    if parsed.scheme == "https" and any(
             host == d or host.endswith("." + d) for d in allowed):
-        return ""
-    return configured
+        return configured
+    # An invalid optional secret should not hide the owner's published ad.
+    return SHOPEE_OWNER_LINK
 
 
 def render_affiliate_promotion(compact: bool = False):
