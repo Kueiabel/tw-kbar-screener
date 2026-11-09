@@ -99,6 +99,11 @@ div[data-testid="stExpander"]>details>summary{
  .qs-stat-value{font-size:1.26rem;}
  .qs-stock{padding:.72rem .78rem;}
 }
+.qs-pattern-guide{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.6rem;}
+.qs-pattern-guide>div{background:#f5f7fa;border:1px solid #e1e8ef;padding:.6rem;border-radius:12px;display:flex;flex-direction:column;align-items:center;gap:.15rem;text-align:center;}
+.qs-pattern-guide svg{width:80px;height:48px;}
+.qs-pattern-guide b{font-size:.83rem;color:#243b53;}
+.qs-pattern-guide small{font-size:.72rem;color:#718096;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -528,49 +533,56 @@ with search_panel:
         value=False,
         help='勾選後，只保留最新收盤價高於最近五根 K 棒收盤均價的股票。日 K 是五日線；週 K 是五週線。這是價格位置條件，不是黃金交叉。')
     st.caption('日 K＝站上五日線；週 K＝站上五週線。可自行勾選，不影響其他型態設定。')
-    st.markdown('**搜尋訊號（可複選）**')
-    st.caption('預設搜尋晨星反轉與多頭十字星；任一符合即可入榜，亦可改為全部符合。')
+    st.markdown('**K 棒訊號**')
+    st.caption('常用兩種預設勾選。任一符合即可上榜，無需同時成立。')
     select_morning = st.checkbox(
-        '晨星反轉（三根 K：長黑 → 小實體止跌 → 紅 K 確認）',
-        value=True,
-        help='下跌近低檔，第一根黑 K、第二根小實體、第三根紅 K 收盤站上第一根 K 棒實體中點；搜尋最近 1～5 根 K 的確認訊號。')
+        '晨星反轉 · 三根 K 確認', value=True,
+        help='長黑 K → 小實體止跌 → 紅 K 收復前根長黑實體中點。')
     select_bull_doji = st.checkbox(
-        '多頭十字星（跌勢低檔的小實體止跌 K）',
-        value=True,
-        help='低檔出現近似開收同價的小實體 K 棒，代表可能止跌但尚未確認起漲。')
-    select_hammer = st.checkbox('錘頭隔日突破', value=False,
-        help='下跌後長下影錘頭，下一根紅 K 收盤突破錘頭最高價 0.3% 以上。')
-    low_rebound = st.checkbox('低點止跌後突破', value=False,
-        help='下跌後形成近 20 期低點，隨後紅 K 突破止跌區間高點。')
-    select_kbar = st.checkbox('其他 K 棒反轉型態（含頂部）', value=False)
-    select_ma = st.checkbox('股價突破／跌破均線 MA5、10、20、52', value=False)
-    include_wm = st.checkbox('W 底／M 頭', value=False)
+        '多頭十字星 · 低檔觀察', value=True,
+        help='下跌低檔出現小實體十字 K，屬提前觀察，不代表已起漲。')
+    extra_pattern_options = [
+        '低檔垂頭線', '低檔倒垂頭線',
+        '多頭吞噬', '多頭孕育線', '穿刺線',
+        '錘頭隔日突破', '低點止跌突破',
+        '高檔上吊線', '高檔流星線',
+        '空頭吞噬', '空頭孕育線', '烏雲蓋頂',
+        '夜星反轉', '向上跳空', '向下跳空',
+        'K 棒反轉', 'W 底／M 頭', '均線突破／跌破',
+        'MACD 交叉', 'KD 交叉', 'RSI 回升／轉弱',
+    ]
     extra_signals = st.multiselect(
-        '更多技術訊號（選填）',
-        options=['MACD 交叉', 'KD 交叉', 'RSI 回升／轉弱'],
+        '加選其他型態（選填）',
+        options=extra_pattern_options,
         default=[],
-        help='勾選後才會加入篩選；不會自動啟用。')
+        format_func=lambda x: {
+            'K 棒反轉': '其他 K 棒反轉（綜合）',
+            '均線突破／跌破': '股價穿越均線 MA5／10／20／52',
+            '低檔垂頭線': '垂頭線（低檔長下影）',
+            '低檔倒垂頭線': '倒垂頭線（低檔長上影）',
+            '高檔上吊線': '上吊線（高檔長下影）',
+            '高檔流星線': '流星線（高檔長上影）',
+            '向上跳空': '向上跳空缺口',
+            '向下跳空': '向下跳空缺口',
+        }.get(x, x),
+        help='所有選項都有實際 K 棒／指標規則，底部與頂部可依訊號方向分開顯示。')
+    with st.popover('查看 K 棒型態圖解'):
+        st.caption('台股慣例：紅色上漲、綠色下跌。以下為簡化圖形，不代表實際行情。')
+        st.markdown("""
+<div class="qs-pattern-guide">
+  <div><svg viewBox="0 0 100 55" aria-label="晨星"><path d="M18 5V43M48 30V52M80 8V50" stroke="#64748b" stroke-width="2"/><rect x="11" y="8" width="14" height="27" fill="#16a085"/><rect x="41" y="37" width="14" height="5" fill="#16a085"/><rect x="73" y="15" width="14" height="27" fill="#dd4545"/></svg><b>晨星</b><small>跌勢止跌後紅 K 確認</small></div>
+  <div><svg viewBox="0 0 100 55" aria-label="十字星"><path d="M50 5V51" stroke="#64748b" stroke-width="2"/><rect x="33" y="27" width="34" height="4" fill="#16a085"/></svg><b>十字星</b><small>小實體，仍待確認</small></div>
+  <div><svg viewBox="0 0 100 55" aria-label="垂頭線"><path d="M50 8V51" stroke="#16a085" stroke-width="3"/><rect x="40" y="9" width="20" height="9" fill="#16a085"/></svg><b>垂頭線</b><small>小實體、長下影</small></div>
+  <div><svg viewBox="0 0 100 55" aria-label="吞噬"><path d="M29 9V47M70 3V51" stroke="#64748b" stroke-width="2"/><rect x="23" y="22" width="12" height="17" fill="#16a085"/><rect x="61" y="12" width="18" height="30" fill="#dd4545"/></svg><b>多頭吞噬</b><small>紅 K 包住前根黑 K</small></div>
+</div>""", unsafe_allow_html=True)
     require_all_signals = st.checkbox(
-        '必須符合所有勾選型態（交集搜尋）',
-        value=False,
-        help='不勾選：符合任一所勾選的訊號便入榜；勾選：同一檔股票必須在所選觀察天數內符合全部勾選的訊號。基本成交額與 MA5 等條件始終是必須符合的過濾條件。')
-    if require_all_signals:
-        st.caption('交集模式：所有勾選訊號都必須出現（可在觀察期間的不同 K 棒）；條件較嚴格，可能沒有結果。')
+        '必須符合全部勾選訊號', value=False,
+        help='關閉：任一勾選訊號成立即可列入；開啟：在觀察天數內需要符合所有勾選的訊號，可能沒有結果。')
     targets = []
     if select_morning:
         targets.append('晨星反轉')
     if select_bull_doji:
         targets.append('多頭十字星')
-    if select_hammer:
-        targets.append('錘頭隔日突破')
-    if low_rebound:
-        targets.append('低點止跌突破')
-    if select_kbar:
-        targets.append('K 棒反轉')
-    if select_ma:
-        targets.append('均線突破／跌破')
-    if include_wm:
-        targets.append('W 底／M 頭')
     targets.extend(extra_signals)
     ma_windows = [5, 10, 20, 52]
     # Avoid nesting expanders: Streamlit does not support an expander inside another.
@@ -587,7 +599,7 @@ with search_panel:
         st.warning('請至少勾選一種搜尋型態。')
     run = st.button('開始篩選股票',type='primary',
         use_container_width=True, disabled=not valid_targets)
-    st.caption('盤後日 K 篩選僅提供候選清單，非買賣建議。')
+    st.caption('使用已完成的日／週 K 盤後行情；篩選結果僅供自行驗證。')
 
 if run:
     criteria = {
