@@ -406,6 +406,7 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame,
         name = escape(str(item['name']))
         pattern = escape(str(item.get('matched_patterns', item['pattern'])))
         stage = escape(str(item['stage']))
+        signal_date = escape(str(item['signal_date']))
         industry_value = item.get('industry', '未分類')
         industry = escape(str(industry_value)) if pd.notna(industry_value) else '未分類'
         score = int(item['score'])
@@ -416,7 +417,7 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame,
             f'<span class="qs-stock-score">{score} 分</span>'
             '</div><div class="qs-stock-bottom">'
             f'<span class="qs-stock-industry">產業：{industry}</span> · 收盤 {price:,.2f} 元'
-            f'<div>符合型態：{pattern}</div><div>主要訊號階段：{stage}</div>'
+            f'<div>符合型態：{pattern}</div><div>訊號日期：{signal_date} · {stage}</div>'
             '</div></div>'
         )
     st.markdown('<div class="qs-rows">' + ''.join(quick_rows) + '</div>',
@@ -540,7 +541,11 @@ with search_panel:
         help='勾選後，只保留最新收盤價高於最近五根 K 棒收盤均價的股票。日 K 是五日線；週 K 是五週線。這是價格位置條件，不是黃金交叉。')
     st.caption('日 K＝站上五日線；週 K＝站上五週線。可自行勾選，不影響其他型態設定。')
     st.markdown('**K 棒訊號**')
-    st.caption('常用兩種預設勾選。任一符合即可上榜，無需同時成立。')
+    st.caption('依照圈選範例優先尋找「探低後收回」那根 K 棒；任一型態符合即可上榜。')
+    select_rejection = st.checkbox(
+        '低檔長下影／回測支撐止跌（圈選範例）',
+        value=True,
+        help='下跌或回檔後，在近期低點或均線支撐附近出現明顯長下影、收盤收回 K 棒上半區。訊號標在當根 K 棒，屬提前觀察，無須等隔日突破。')
     select_morning = st.checkbox(
         '晨星反轉 · 三根 K 確認', value=True,
         help='長黑 K → 小實體止跌 → 紅 K 收復前根長黑實體中點。')
@@ -585,6 +590,8 @@ with search_panel:
         '必須符合全部勾選訊號', value=False,
         help='關閉：任一勾選訊號成立即可列入；開啟：在觀察天數內需要符合所有勾選的訊號，可能沒有結果。')
     targets = []
+    if select_rejection:
+        targets.append('低檔長下影止跌')
     if select_morning:
         targets.append('晨星反轉')
     if select_bull_doji:
@@ -658,7 +665,7 @@ if 'results' in st.session_state:
                 unsafe_allow_html=True)
     mode_label = ('全部勾選型態均符合' if r['criteria'].get('require_all_signals')
                   else '符合任一勾選型態即可')
-    st.caption(f'{mode_label} · 盤後{frame_label}。每檔列出實際符合的型態；評分不是勝率。')
+    st.caption(f'{mode_label} · 盤後{frame_label}。圈選型態會標示訊號當根日期；評分不是勝率。')
     tabs=st.tabs(['底部候選 Top 25','頂部候選 Top 25','判斷規則'])
     with tabs[0]:
         render_rankings(r['bottom'],'bottom',r['data'],effective_date,
@@ -670,7 +677,7 @@ if 'results' in st.session_state:
         st.markdown('''
 **判斷型態**
 
-- **底部預設：** 晨星三 K 確認（長黑 K、小實體止跌 K、紅 K 確認）及多頭十字星（跌勢低檔的小實體十字 K，屬提前觀察）。
+- **底部預設：** 低檔長下影／回測支撐止跌（探低後收回的當根 K 棒，提前觀察）、晨星三 K 確認、多頭十字星。圈選範例屬早期止跌訊號，不要求隔日確認突破。
 - **組合方式：** 預設符合任一勾選型態就列入；勾選「必須符合所有」時，同一股票需在選定觀察天數內符合全部勾選訊號，可在不同交易日成立。成交量、成交金額、股價及可選 MA5 屬於必須符合的基本過濾條件。
 - **底部其他可選：** 錘頭隔日突破、低點止跌後突破、其他 K 棒反轉、W 底／M 頭、均線及 MACD／KD／RSI。未勾選時不參與搜尋。
 - **頂部：** 流星線（長上影）、空頭吞噬、夜星三 K、突破前高後跌回、局部高點二 K 確認、M 頭雛形／跌破頸線、20 日區間向下跌破。
