@@ -158,6 +158,43 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
                 f"{hammer_high:.2f} 元 0.3% 以上{volume_note}；"
                 "供下一交易日觀察，尚未代表後續一定上漲",
                 "隔日突破已確認", category="錘頭隔日突破")
+    # User-marked chart examples (2834 / 1802 / 6269 / 3019):
+    # select the rejection candle ITSELF rather than a later breakout.
+    # A single candle with meaningful rejection from a recent low or moving-
+    # average support, on either red or green body, is an early warning only.
+    if "低檔長下影止跌" in allowed and len(c) >= 35:
+        candle_range = max(float(hi-lo), 1e-8)
+        rejection = float(lower) / candle_range
+        upper_ratio = float(upper) / candle_range
+        close_position = (float(cl)-float(lo)) / candle_range
+        # Price previously moved down, OR it is a recognizable pullback from
+        # a local higher trading range. Never require a bullish candle body.
+        recent_high = float(np.max(h[-16:-1]))
+        prev_decline = (c[-2] < c[-5]*.985 or
+                        c[-2] < c[-9]*.97 or
+                        c[-2] < recent_high*.965)
+        # Must be a fresh downside test: new/near 12-bar low, OR a pullback
+        # directly into MA20/MA52 support after an earlier retreat.
+        fresh_low = lo <= float(np.min(l[-13:-1]))*1.012
+        ma20 = float(np.mean(c[-20:]))
+        ma52 = float(np.mean(c[-52:])) if len(c) >= 52 else ma20
+        support_test = any(
+            level > 0 and lo <= level*1.018 and cl >= level*.985
+            for level in (ma20, ma52)
+        )
+        near_low_zone = (lo <= float(np.min(l[-21:-1]))*1.028 or
+                         fresh_low or support_test)
+        # Avoid tiny/noisy wicks and unrecovered long bearish closes.
+        wick_valid = (rejection >= .43 and lower >= max(body*.95, span*.43)
+                      and upper_ratio <= .28 and close_position >= .57)
+        if wick_valid and prev_decline and near_low_zone:
+            reason = ("盤中向下測試後收回，長下影占本根 K 棒約"
+                      f"{rejection:.0%}；"
+                      + ("接近近期低點" if fresh_low else "接近均線支撐區")
+                      + "；屬止跌觀察，未代表隔日一定上漲")
+            add("bottom", "長下影止跌／支撐反彈", 52,
+                reason, "訊號當根／提前觀察",
+                category="低檔長下影止跌")
     # Strict early-bottom breakout, not a breakout after a long sideways base:
     # 1) the pivot must be the genuine recent low in an established decline;
     # 2) today's confirmation is nearby in price/time and must reclaim the
