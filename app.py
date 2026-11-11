@@ -618,12 +618,16 @@ if 'results' in st.session_state:
         f'上市名冊 {r["diag"]["listed"]:,} 檔</div>'
         '</div>',
         unsafe_allow_html=True)
+    v_only = set(r['criteria'].get('targets', [])).issubset(
+        {'V型反轉', 'V底K棒', 'V底放量'})
     stats = [
         ('可分析股票', r['diag']['covered'], '檔'),
         ('符合流動性', r['diag']['liquid'], '檔'),
-        ('底部候選', len(r['bottom']), '/ 25 檔'),
-        ('頂部候選', len(r['top']), '/ 25 檔'),
+        ('V 型底部候選' if v_only else '底部候選',
+         len(r['bottom']), '/ 25 檔'),
     ]
+    if not v_only:
+        stats.append(('頂部候選', len(r['top']), '/ 25 檔'))
     stat_html = ''.join(
         '<div class="qs-stat">'
         f'<div class="qs-stat-label">{escape(label)}</div>'
@@ -635,22 +639,26 @@ if 'results' in st.session_state:
                 unsafe_allow_html=True)
     mode_label = ('全部勾選型態均符合' if r['criteria'].get('require_all_signals')
                   else '符合任一勾選型態即可')
-    st.caption(f'{mode_label} · 盤後{frame_label}。圈選型態會標示訊號當根日期；評分不是勝率。')
-    tabs=st.tabs(['底部候選 Top 25','頂部候選 Top 25','判斷規則'])
+    st.caption(f'{mode_label} · 盤後{frame_label}。符合哪幾種 V 訊號會顯示在股票卡片；分數不是勝率。')
+    if v_only:
+        tabs=st.tabs(['V 型候選 Top 25','判斷規則'])
+    else:
+        tabs=st.tabs(['底部候選 Top 25','頂部候選 Top 25','判斷規則'])
     with tabs[0]:
         render_rankings(r['bottom'],'bottom',r['data'],effective_date,
                         r['criteria'].get('timeframe','D'))
-    with tabs[1]:
-        render_rankings(r['top'],'top',r['data'],effective_date,
-                        r['criteria'].get('timeframe','D'))
-    with tabs[2]:
+    if not v_only:
+        with tabs[1]:
+            render_rankings(r['top'],'top',r['data'],effective_date,
+                            r['criteria'].get('timeframe','D'))
+    with tabs[1 if v_only else 2]:
         st.markdown('''
 **判斷型態**
 
 - **底部預設：** 3 種 V 型訊號「V 型價格反轉」「V 底 K 棒（槌頭／長下影／實體紅 K）」「V 底放大量」，**符合任一個就列入**，不要求三者同時成立。K 線分別以查詢日往前第 2、1 根判斷；當日作為第三日觀察，榜單標示底部日期、首次收高日期及符合型態。
-- **組合方式：** 預設符合任一勾選型態就列入；勾選「必須符合所有」時，同一股票需在選定觀察天數內符合全部勾選訊號，可在不同交易日成立。成交量、成交金額、股價及可選 MA5 屬於必須符合的基本過濾條件。
+- **組合方式：** 只使用「任一符合」模式；不再要求三種 V 型訊號同時成立。成交量、成交金額、股價區間與可選 MA5 仍是基本股票過濾條件。
 - **搜尋面板：** 已移除舊版各種型態、必須全符合與舊版嚴格的 20 K 新低限制；其他基本流動性和價格欄位保留可調。
-- **頂部：** 流星線（長上影）、空頭吞噬、夜星三 K、突破前高後跌回、局部高點二 K 確認、M 頭雛形／跌破頸線、20 日區間向下跌破。
+- **頂部訊號：** 此版專注 V 型底部候選，暫不顯示頂部候選空榜單。
 - **評分：** 型態基本分＋流動性＋訊號日量比＋均線位置／方向－訊號距今交易日的時間折減，最高 100 分。分數不能解讀為上漲或下跌的機率。
 - **榜單：** 每檔最多入選一次，但會列出全部匹配的型態；分數以最高分訊號為準。只有符合條件才列入，可能不足 25 檔。
 
