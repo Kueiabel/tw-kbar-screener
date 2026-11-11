@@ -806,15 +806,22 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
             continue
         liquid += 1
         code_signals = 0
-        for age in range(min(signal_days, len(grp)-min_history_bars+1)):
+        # The main setup always uses pivot at scan day -2 and
+        # confirmation at scan day -1, even if the optional lookback
+        # dropdown for unrelated patterns is set to 1.
+        max_age_count = max(signal_days, 2 if "低檔止跌隔日確認" in enabled_categories else 1)
+        for age in range(min(max_age_count, len(grp)-min_history_bars+1)):
             i = len(grp) - 1 - age
             partial = grp.iloc[:i+1]
             for side, name, base, reason, stage, category in _patterns_at(
                     partial, enabled_categories=enabled_categories, ma_windows=ma_windows):
-                # Main strategy uses the candle TWO completed trading
-                # bars before the scan date and the preceding-day
-                # confirmation. Never substitute today's candle here.
-                if category == "低檔止跌隔日確認" and age != 1:
+                # Main strategy uses candle scan-day -2 and confirms at
+                # scan-day -1; all other pattern categories retain their
+                # user-selected lookback number of completed bars.
+                if category == "低檔止跌隔日確認":
+                    if age != 1:
+                        continue
+                elif age >= signal_days:
                     continue
                 # Other breakout signals keep their prior timing.
                 if name in ("錘頭隔日突破・第三日觀察",
