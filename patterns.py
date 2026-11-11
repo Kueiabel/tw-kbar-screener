@@ -488,6 +488,25 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
         add("top", "向下跳空缺口", 43,
             "本期最高價低於前期最低價，出現尚未回補的下方缺口",
             category="向下跳空")
+    # Volume-backed bullish price action (NOT institutional or dealer net buying).
+    # Only the completed signal bar and the preceding 20 completed bars are used.
+    # On weekly charts these are weekly volume bars, not 20 daily sessions.
+    if "放量買盤轉強" in allowed and len(c) >= 32:
+        prev20_avg_shares = float(np.mean(shares[-21:-1]))
+        volume_multiple = float(shares[-1]) / max(prev20_avg_shares, 1.0)
+        candle_span = max(float(hi-lo), 1e-8)
+        close_loc = (float(cl)-float(lo)) / candle_span
+        gain = (float(cl)/float(c[-2])-1) if c[-2] > 0 else 0.0
+        # Meaningful volume expansion and confirmed price strength, rather
+        # than a high-volume selloff or simply elevated activity.
+        if (volume_multiple >= 1.8 and cl > op and gain >= .01
+                and close_loc >= .75 and cl >= float(h[-2])*1.003):
+            add("bottom", "放量紅 K 突破", 56,
+                f"本期成交量為前 20 期平均 {volume_multiple:.2f} 倍；"
+                f"收盤漲幅 {gain:.1%}、收於當根高低區間上方，"
+                "且收盤突破前一根高點 0.3% 以上；"
+                "屬量價轉強訊號，非法人／主力買超統計",
+                "量價已確認", category="放量買盤轉強")
     # Optional, separately selectable patterns (off by default).
     if "W 底／M 頭" in allowed:
         for side in ("bottom", "top"):
