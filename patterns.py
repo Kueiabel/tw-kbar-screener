@@ -31,6 +31,8 @@ class Signal:
     sma20: float
     explanation: str
     stage: str
+    pivot_date: str = ""
+    pivot_volume_ratio: float = 0.0
 
     def as_dict(self):
         return asdict(self)
@@ -821,6 +823,12 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
                     score = min(100, score + 12)
                 prev_close = float(grp.close.iloc[-2]) if len(grp) > 1 else float(grp.close.iloc[-1])
                 pct = (grp.close.iloc[-1] / prev_close-1)*100 if prev_close else 0
+                low_day_i = i - 1 if category == "低檔止跌隔日確認" else -1
+                low_day_ratio = (
+                    float(grp.shares.iloc[low_day_i])
+                    / max(float(grp.shares.iloc[low_day_i-5:low_day_i].mean()), 1.)
+                    if low_day_i >= 5 else 0.0
+                )
                 signal = Signal(
                     side=side, category=category, code=code, name=companies.get(code, grp['name'].iloc[-1]),
                     pattern=name, signal_date=str(grp.date.iloc[i]), age=age,
@@ -830,6 +838,8 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
                     volume_ratio=round(float(ratio),2),
                     sma20=round(float(grp.close.tail(20).mean()),2),
                     explanation=reason, stage=stage,
+                    pivot_date=str(grp.date.iloc[low_day_i]) if low_day_i >= 5 else "",
+                    pivot_volume_ratio=round(low_day_ratio, 2),
                 )
                 result[side].append(signal.as_dict())
         if code_signals:
