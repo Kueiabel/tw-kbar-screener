@@ -291,76 +291,85 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
     def add(side, label, score, reason, stage="已確認", category="K 棒反轉"):
         if category in allowed:
             res.append((side, label, score, reason, stage, category))
-    # Consolidated early bottom-reversal: signal appears on the NEXT completed
-    # trading bar, using the previous bar as the possible turning point.
-    # The low-day shape can be a hammer, a meaningful lower-wick rejection,
-    # OR a gap-down/open-at-low candle that rebounds intraday. Unlike a
-    # doji this does not require symmetric upper/lower shadows.
+    # Main search: two trading bars before the QUERY date must be an actual
+    # fresh 20-bar LOW with a real lower shadow / hammer shape. The next
+    # trading bar confirms with a higher close. screen() only accepts a
+    # confirmation age of 1, so the current query-date bar is never treated
+    # as the confirming bar and no future data is used.
     if "低檔止跌隔日確認" in allowed and len(c) >= 35:
-        pivot = len(c)-2
-        p_open = float(o[pivot])
-        p_high = float(h[pivot])
-        p_low = float(l[pivot])
-        p_close = float(c[pivot])
-        p_span = max(float(p_high-p_low), 1e-8)
+        pivot = len(c)-2  # relative to the confirmation-day partial slice
+        p_open, p_high, p_low, p_close = (
+            float(o[pivot]), float(h[pivot]),
+            float(l[pivot]), float(c[pivot]))
+        p_geometry = _candle_geometry(p_open,p_high,p_low,p_close)
         p_body = abs(p_close-p_open)
         p_lower = min(p_open,p_close)-p_low
-        p_close_position = (p_close-p_low)/p_span
-        pre_low20 = float(np.min(l[pivot-20:pivot]))
-        pre_high20 = float(np.max(h[pivot-20:pivot]))
-        pre_closes = c[pivot-10:pivot]
-        previous_close = float(c[pivot-1])
-        # Compare the VOLUME OF THE LOW-DAY itself with the five completed
-        # trading bars strictly BEFORE that day (never include confirmation).
-        # Daily bars -> previous five trading days; weekly bars -> five weeks.
-        prior_five_volume = float(np.mean(shares[pivot-5:pivot]))
-        low_day_volume = float(shares[pivot])
-        volume_expansion = (prior_five_volume > 0
-                            and low_day_volume > prior_five_volume)
-        low_day_vol_ratio = low_day_volume / max(prior_five_volume, 1.0)
-        was_declining = (
-            previous_close < float(c[pivot-7])*.985
-            or previous_close < float(np.max(pre_closes))*.955
-        )
-        # Use the low-price position instead of 'prior_down OR near_bottom'.
-        # A cross midway through the decline is not a bottom candidate.
-        tested_low = (p_low <= pre_low20*1.020
-                      or (p_low-pre_low20)/max(pre_high20-pre_low20,1e-8) <= .13)
+        p_upper = p_high-max(p_open,p_close)
+        p_span = max(p_high-p_low, 1e-8)
+        # 'Long lower wick' includes hammers and broader bullish rejection
+        # shapes, but NEVER open==low candles without a lower wick.
         hammer_like = _is_hammer_shape(p_open,p_high,p_low,p_close)
-        tail_rebound = (p_lower > p_body*.85 and
-                        p_lower/p_span >= .34 and p_close_position >= .60)
-        open_low_rebound = (
-            p_close > p_open and p_close_position >= .53
-            and (p_open <= float(l[pivot-1])*.996
-                 or p_open <= previous_close*.985)
+        long_lower_wick = bool(
+            p_geometry is not None and p_lower > 0
+            and p_geometry[2] >= .34
+            and p_lower >= max(p_body*1.20, p_upper*1.35)
+            and (p_close-p_low)/p_span >= .55
         )
-        pivot_shape = (hammer_like or tail_rebound or open_low_rebound)
-        # One completed bar later: hold the pivot low, and CLOSE ABOVE its
-        # close. A strong gap-up red body can still qualify if the close is up
-        # from the pivot. Close > pivot high is a stronger confirmation tier.
-        recovered_next = (
-            float(l[-1]) >= p_low*.998
-            and cl > p_close
-            and (cl > op or op > p_close)
+        pivot_shape = hammer_like or long_lower_wick
+
+        prior_lows = l[pivot-20:pivot]
+        prior_highs = h[pivot-20:pivot]
+        prior_closes = c[pivot-20:pivot]
+        # Exactly at, or under, the LOW of the previous 20 completed K bars,
+        # not merely anywhere in a decline or near a moving average.
+        is_fresh_low20 = p_low <= float(np.min(prior_lows))
+        # Overall declining structure over the preceding 20 bars.
+        earlier_closes = float(np.mean(prior_closes[:5]))
+        latest_closes = float(np.mean(prior_closes[-5:]))
+        downtrend20 = (
+            latest_closes < earlier_closes
+            and float(prior_closes[-1]) < float(prior_closes[0])
         )
-        if (was_declining and tested_low and pivot_shape
-                and volume_expansion and recovered_next):
+
+        # Existing pivot-volume condition remains: the hammer/long-wick bar
+        # itself must exceed its preceding five completed trading-bar average.
+        prior_five_avg = float(np.mean(shares[pivot-5:pivot]))
+        pivot_volume = float(shares[pivot])
+        pivot_above_5 = prior_five_avg > 0 and pivot_volume > prior_five_avg
+
+        # New two-day condition: pivot + confirmation volumes must, on
+        # average, exceed the previous five non-signal trading bars.
+        confirmation_volume = float(shares[-1])
+        two_day_avg = (pivot_volume+confirmation_volume)/2.0
+        combined_volume_above_5 = (
+            prior_five_avg > 0 and two_day_avg > prior_five_avg
+        )
+
+        # Confirmation K is the next completed bar, not the scan-day bar.
+        # No 'gap-up but sold off below pivot close' false positives.
+        confirm_holds_low = float(l[-1]) >= p_low
+        confirm_higher_close = cl > p_close
+        confirm_candle_positive = cl > op or (op > p_close and cl > p_close)
+        confirmed = (confirm_holds_low and confirm_higher_close
+                     and confirm_candle_positive)
+
+        if (downtrend20 and is_fresh_low20 and pivot_shape
+                and pivot_above_5 and combined_volume_above_5 and confirmed):
             strong = cl > p_high
-            pivot_shape_name = (
-                "槌頭棒" if hammer_like else
-                "長下影收回" if tail_rebound else "開低探底收回"
-            )
+            pivot_name = "槌頭棒" if hammer_like else "長下影線"
             date_low = str(df.date.iloc[pivot])
             date_confirm = str(df.date.iloc[-1])
-            tier = "突破低點 K 高點" if strong else "收盤高於止跌 K 收盤"
-            add("bottom", "低檔止跌→隔日轉強確認", 73 if strong else 61,
-                f"{date_low} 下跌後測試低點 {p_low:.2f}，"
-                f"出現{pivot_shape_name}，當日量為前 5 期均量 "
-                f"{low_day_vol_ratio:.2f} 倍（{low_day_volume/1000:,.0f} 張 "
-                f"> {prior_five_volume/1000:,.0f} 張）；"
-                f"{date_confirm} 下一交易日守住前低且{tier}"
-                f"（確認收盤 {cl:.2f}）；"
-                "供進一步觀察，不代表後續必然上漲",
+            pivot_ratio = pivot_volume/prior_five_avg
+            two_day_ratio = two_day_avg/prior_five_avg
+            add("bottom", "20 K 低檔長下影→隔日確認",
+                73 if strong else 64,
+                f"{date_low} 位於前 20 根 K 棒新低 {p_low:.2f}，"
+                f"出現{pivot_name}；止跌日量／前五期均量 {pivot_ratio:.2f} 倍，"
+                f"止跌日＋確認日平均量／前五期均量 {two_day_ratio:.2f} 倍；"
+                f"{date_confirm} 守住低點且收盤 {cl:.2f} 高於止跌日 "
+                f"{p_close:.2f}" +
+                ("，並突破止跌 K 高點" if strong else "") +
+                "。僅為反彈觀察訊號，不保證後續上漲",
                 "隔日突破確認" if strong else "隔日初步確認",
                 category="低檔止跌隔日確認")
     # Day 1: hammer. Day 2: bullish candle CLOSES above the hammer's
@@ -802,8 +811,12 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
             partial = grp.iloc[:i+1]
             for side, name, base, reason, stage, category in _patterns_at(
                     partial, enabled_categories=enabled_categories, ma_windows=ma_windows):
-                # Show this breakout only when it is the most recent
-                # completed trading day, ready for next-session review.
+                # Main strategy uses the candle TWO completed trading
+                # bars before the scan date and the preceding-day
+                # confirmation. Never substitute today's candle here.
+                if category == "低檔止跌隔日確認" and age != 1:
+                    continue
+                # Other breakout signals keep their prior timing.
                 if name in ("錘頭隔日突破・第三日觀察",
                             "低點止跌後突破") and age != 0:
                     continue
