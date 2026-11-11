@@ -306,7 +306,8 @@ def render_waiting_ad():
 EXPORT_FIELDS = {
     'rank':'排名','code':'代號','name':'公司','industry':'產業類別','category':'搜尋類別','pattern':'型態','stage':'階段',
     'score':'評分','signal_date':'訊號日期','pivot_date':'止跌日期',
-    'pivot_volume_ratio':'止跌日量／前5期均量','age':'距今交易日',
+    'pivot_volume_ratio':'止跌日量／前5期均量',
+    'two_day_volume_ratio':'兩日均量／前5期均量','age':'距今交易日',
     'close':'最新收盤價','change_pct':'當日漲跌幅(%)','volume_lots':'當日成交量(張)',
     'avg_volume_lots':'20日均量(張)','avg_turnover_100m':'20日均成交金額(億元)',
     'volume_ratio':'訊號日量比','sma20':'20日均線',
@@ -390,6 +391,7 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame,
         'matched_count':'符合型態數',
         'score':'分數','signal_date':'訊號日期','pivot_date':'止跌日期',
         'pivot_volume_ratio':'止跌日量／前5期均量',
+        'two_day_volume_ratio':'兩日均量／前5期均量',
         'age':'距今天數(交易日)',
         'close':'收盤價','change_pct':'漲跌幅 %',
         'volume_lots':'今日量(張)','avg_volume_lots':'20日均量(張)',
@@ -398,7 +400,8 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame,
     # Older Streamlit sessions may still hold cached rankings from before the
     # extra pivot fields existed. Keep the display stable until a fresh scan.
     for optional_col, default in (
-            ("止跌日期", ""), ("止跌日量／前5期均量", 0.0)):
+            ("止跌日期", ""), ("止跌日量／前5期均量", 0.0),
+            ("兩日均量／前5期均量", 0.0)):
         if optional_col not in shown.columns:
             shown[optional_col] = default
     # First five as readable, thumb-friendly rows, without horizontal swiping.
@@ -413,8 +416,12 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame,
         signal_date = escape(str(item['signal_date']))
         pivot_date = escape(str(item.get('pivot_date') or ''))
         pivot_volume_ratio = float(item.get('pivot_volume_ratio') or 0)
-        volume_info = (f' · 止跌日量比 {pivot_volume_ratio:.2f} 倍'
-                       if pivot_date and pivot_volume_ratio > 0 else '')
+        two_day_volume_ratio = float(item.get('two_day_volume_ratio') or 0)
+        volume_info = (
+            f' · 止跌日量 {pivot_volume_ratio:.2f} 倍'
+            f' · 兩日均量 {two_day_volume_ratio:.2f} 倍'
+            if pivot_date and pivot_volume_ratio > 0 else ''
+        )
         date_label = (f'止跌 {pivot_date} → 確認 {signal_date}{volume_info}'
                       if pivot_date else f'訊號日期：{signal_date}')
         industry_value = item.get('industry', '未分類')
@@ -441,7 +448,8 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame,
     with st.expander('更多欄位（成交量、成交金額、日期等）'):
         st.dataframe(shown[['排名','代號','股票名稱','產業類別',
             '搜尋類別','符合型態','符合搜尋項目','符合型態數',
-            '階段','分數','止跌日期','訊號日期','止跌日量／前5期均量','收盤價',
+            '階段','分數','止跌日期','訊號日期',
+            '止跌日量／前5期均量','兩日均量／前5期均量','收盤價',
             '漲跌幅 %','今日量(張)','20日均量(張)','20日均成交額(億)','量比']],
             hide_index=True,use_container_width=True,
             column_config={'漲跌幅 %':st.column_config.NumberColumn(
