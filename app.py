@@ -99,11 +99,6 @@ div[data-testid="stExpander"]>details>summary{
  .qs-stat-value{font-size:1.26rem;}
  .qs-stock{padding:.72rem .78rem;}
 }
-.qs-pattern-guide{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.6rem;}
-.qs-pattern-guide>div{background:#f5f7fa;border:1px solid #e1e8ef;padding:.6rem;border-radius:12px;display:flex;flex-direction:column;align-items:center;gap:.15rem;text-align:center;}
-.qs-pattern-guide svg{width:80px;height:48px;}
-.qs-pattern-guide b{font-size:.83rem;color:#243b53;}
-.qs-pattern-guide small{font-size:.72rem;color:#718096;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -541,7 +536,7 @@ with search_panel:
         help='勾選後，只保留最新收盤價高於最近五根 K 棒收盤均價的股票。日 K 是五日線；週 K 是五週線。這是價格位置條件，不是黃金交叉。')
     st.caption('日 K＝站上五日線；週 K＝站上五週線。可自行勾選，不影響其他型態設定。')
     st.markdown('**K 棒訊號**')
-    st.caption('依照圈選範例優先尋找「探低後收回」那根 K 棒；任一型態符合即可上榜。')
+    st.caption('優先辨識明顯止跌與確認突破；不符合就不列入。各型態獨立搜尋。')
     select_rejection = st.checkbox(
         '低檔長下影／回測支撐止跌（圈選範例）',
         value=True,
@@ -579,16 +574,7 @@ with search_panel:
             '多次探底突破': '多次探底 → 頸線突破（三重底）',
             '上升通道突破': '上升通道 → 突破上緣',
         }.get(x, x),
-        help='新增：多次探底突破、上升通道突破。兩項預設不勾選；採盤後收盤確認，不預測未來漲幅。')
-    with st.popover('查看 K 棒型態圖解'):
-        st.caption('台股慣例：紅色上漲、綠色下跌。以下為簡化圖形，不代表實際行情。')
-        st.markdown("""
-<div class="qs-pattern-guide">
-  <div><svg viewBox="0 0 100 55" aria-label="晨星"><path d="M18 5V43M48 30V52M80 8V50" stroke="#64748b" stroke-width="2"/><rect x="11" y="8" width="14" height="27" fill="#16a085"/><rect x="41" y="37" width="14" height="5" fill="#16a085"/><rect x="73" y="15" width="14" height="27" fill="#dd4545"/></svg><b>晨星</b><small>跌勢止跌後紅 K 確認</small></div>
-  <div><svg viewBox="0 0 100 55" aria-label="十字星"><path d="M50 5V51" stroke="#64748b" stroke-width="2"/><rect x="33" y="27" width="34" height="4" fill="#16a085"/></svg><b>十字星</b><small>小實體，仍待確認</small></div>
-  <div><svg viewBox="0 0 100 55" aria-label="垂頭線"><path d="M50 8V51" stroke="#16a085" stroke-width="3"/><rect x="40" y="9" width="20" height="9" fill="#16a085"/></svg><b>垂頭線</b><small>小實體、長下影</small></div>
-  <div><svg viewBox="0 0 100 55" aria-label="吞噬"><path d="M29 9V47M70 3V51" stroke="#64748b" stroke-width="2"/><rect x="23" y="22" width="12" height="17" fill="#16a085"/><rect x="61" y="12" width="18" height="30" fill="#dd4545"/></svg><b>多頭吞噬</b><small>紅 K 包住前根黑 K</small></div>
-</div>""", unsafe_allow_html=True)
+        help='各型態使用獨立的 K 線判斷規則；多次探底與上升通道須收盤確認突破。')
     require_all_signals = st.checkbox(
         '必須符合全部勾選訊號', value=False,
         help='關閉：任一勾選訊號成立即可列入；開啟：在觀察天數內需要符合所有勾選的訊號，可能沒有結果。')
@@ -615,7 +601,7 @@ with search_panel:
         st.warning('請至少勾選一種搜尋型態。')
     run = st.button('開始篩選股票',type='primary',
         use_container_width=True, disabled=not valid_targets)
-    st.caption('使用已完成的日／週 K 盤後行情；篩選結果僅供自行驗證。')
+    st.caption('型態精準度須經逐筆標記與歷史回測驗證；篩選結果不等於未來上漲機率。')
 
 if run:
     criteria = {
