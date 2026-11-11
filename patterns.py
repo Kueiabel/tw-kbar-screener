@@ -289,6 +289,66 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
     def add(side, label, score, reason, stage="已確認", category="K 棒反轉"):
         if category in allowed:
             res.append((side, label, score, reason, stage, category))
+    # Consolidated early bottom-reversal: signal appears on the NEXT completed
+    # trading bar, using the previous bar as the possible turning point.
+    # The low-day shape can be a hammer, a meaningful lower-wick rejection,
+    # OR a gap-down/open-at-low candle that rebounds intraday. Unlike a
+    # doji this does not require symmetric upper/lower shadows.
+    if "低檔止跌隔日確認" in allowed and len(c) >= 35:
+        pivot = len(c)-2
+        p_open = float(o[pivot])
+        p_high = float(h[pivot])
+        p_low = float(l[pivot])
+        p_close = float(c[pivot])
+        p_span = max(float(p_high-p_low), 1e-8)
+        p_body = abs(p_close-p_open)
+        p_lower = min(p_open,p_close)-p_low
+        p_close_position = (p_close-p_low)/p_span
+        pre_low20 = float(np.min(l[pivot-20:pivot]))
+        pre_high20 = float(np.max(h[pivot-20:pivot]))
+        pre_closes = c[pivot-10:pivot]
+        previous_close = float(c[pivot-1])
+        was_declining = (
+            previous_close < float(c[pivot-7])*.985
+            or previous_close < float(np.max(pre_closes))*.955
+        )
+        # Use the low-price position instead of 'prior_down OR near_bottom'.
+        # A cross midway through the decline is not a bottom candidate.
+        tested_low = (p_low <= pre_low20*1.020
+                      or (p_low-pre_low20)/max(pre_high20-pre_low20,1e-8) <= .13)
+        hammer_like = _is_hammer_shape(p_open,p_high,p_low,p_close)
+        tail_rebound = (p_lower > p_body*.85 and
+                        p_lower/p_span >= .34 and p_close_position >= .60)
+        open_low_rebound = (
+            p_close > p_open and p_close_position >= .53
+            and (p_open <= float(l[pivot-1])*.996
+                 or p_open <= previous_close*.985)
+        )
+        pivot_shape = (hammer_like or tail_rebound or open_low_rebound)
+        # One completed bar later: hold the pivot low, and CLOSE ABOVE its
+        # close. A strong gap-up red body can still qualify if the close is up
+        # from the pivot. Close > pivot high is a stronger confirmation tier.
+        recovered_next = (
+            float(l[-1]) >= p_low*.998
+            and cl > p_close
+            and (cl > op or op > p_close)
+        )
+        if was_declining and tested_low and pivot_shape and recovered_next:
+            strong = cl > p_high
+            pivot_shape_name = (
+                "槌頭棒" if hammer_like else
+                "長下影收回" if tail_rebound else "開低探底收回"
+            )
+            date_low = str(df.date.iloc[pivot])
+            date_confirm = str(df.date.iloc[-1])
+            tier = "突破低點 K 高點" if strong else "收盤高於止跌 K 收盤"
+            add("bottom", "低檔止跌→隔日轉強確認", 73 if strong else 61,
+                f"{date_low} 下跌後測試低點 {p_low:.2f}，"
+                f"出現{pivot_shape_name}；{date_confirm} 下一交易日"
+                f"守住前低且{tier}（確認收盤 {cl:.2f}）；"
+                "供進一步觀察，不代表後續必然上漲",
+                "隔日突破確認" if strong else "隔日初步確認",
+                category="低檔止跌隔日確認")
     # Day 1: hammer. Day 2: bullish candle CLOSES above the hammer's
     # entire high by 0.3%. The signal is available as soon as day-2 EOD data
     # is published, so users can review it on the morning of trading day 3.
@@ -427,25 +487,8 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
         add("top", "流星線／長上影", 37, "上影線明顯長於實體，收盤回到區間下半部")
     # Shape-first doji: evaluate the actual cross structure with both
     # upper and lower shadows. The trend/near-low context stays unchanged.
-    is_doji = _is_regular_doji(op, hi, lo, cl)
-    dragonfly = _is_hammer_shape(op, hi, lo, cl) and body < span*.12
-    gravestone = _is_hammer_shape(op, hi, lo, cl, inverted=True) and body < span*.12
-    if dragonfly and near_bottom and prior_down:
-        add("bottom", "蜻蜓十字星", 42,
-            "低檔出現單側長下影十字型，與上下影線均有的多頭十字星分開判斷",
-            "提前預警")
-    if gravestone and near_top and prior_up:
-        add("top", "墓碑十字星", 42,
-            "高檔出現單側長上影十字型，與一般十字星分開判斷",
-            "提前預警")
-    if is_doji and near_bottom and prior_down:
-        add("bottom", "多頭十字星", 35,
-            "低檔小實體且上下影線清楚的十字形 K 棒；屬提前觀察",
-            "提前觀察", category="多頭十字星")
-    if is_doji and near_top and prior_up:
-        add("top", "空頭十字星", 31,
-            "高檔小實體且上下影線清楚的十字形 K 棒；屬提前觀察",
-            "提前預警")
+    # Doji-family signals are removed from screening by user request.
+    # Keep the shape helper for possible debugging; emit no doji categories.
     if _is_hammer_shape(op, hi, lo, cl, inverted=True) and near_bottom and prior_down:
         add("bottom", "倒錘子線", 34,
             "下跌後出現小實體與長上影，仍待下一根確認", "提前預警")
