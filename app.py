@@ -562,7 +562,7 @@ with search_panel:
     st.caption('主訊號：前兩交易日創 20 K 新低＋槌頭／長下影；前一交易日收高；兩日均量放大。')
     select_early_confirmation = st.checkbox(
         '20 K 新低＋長下影／槌頭＋隔日轉強（主搜尋）', value=True,
-        help='查詢日期往前兩個交易日：須創前20根K的低點、前20根走勢向下，並且一定有長下影或槌頭（無下影線不合格）。止跌日量高於先前五期均量；前一交易日守住低點且收盤比止跌日高，兩日平均量也高於前五期均量。')
+        help='日K：查詢日往前兩交易日是止跌K、前一交易日是確認K；週K則以已完成的週K為單位。止跌K須創前20根K新低、20根走勢向下、明顯長下影或槌頭（無下影線不合格）。止跌日量與兩根K均量都須大於止跌K之前五根均量；確認K守住低點且收盤高於止跌K。')
     extra_pattern_options = [
         '低檔長下影止跌', '低檔開低收回',
         '低檔垂頭線', '低檔倒垂頭線',
@@ -611,7 +611,7 @@ with search_panel:
             options=[1,2,3,4,5],value=3)
         history_days = st.slider('歷史回溯天數',120,250,165,5)
     if select_early_confirmation and signal_days == 1:
-        st.caption('主要訊號固定檢查前兩個交易日，因此不受「最近 1 日」設定限制；其他型態仍依指定觀察天數。')
+        st.caption('主訊號固定檢查查詢日前兩根 K（日 K 為兩個交易日、週 K 為兩個完整週）；其他型態依指定觀察天數。')
     valid_targets = bool(targets) and price_error is None
     if not targets:
         st.warning('請至少勾選一種搜尋型態。')
