@@ -115,6 +115,89 @@ def _hammer_at(o, h, l, c, idx: int) -> bool:
     )
 
 
+def _multi_test_reversal(h, l, c):
+    """A breakout after >=3 confirmed similar lows; signal on breakout bar.
+
+    Each swing is known only after two following bars. Compare the *close*
+    with the neckline, avoiding hindsight selection of a breakout.
+    """
+    n = len(c)
+    if n < 42 or c[-1] <= c[-2]:
+        return None
+    bottoms = [i for i in _pivots(l, "low") if n-49 <= i <= n-4]
+    if len(bottoms) < 3:
+        return None
+    # Only candidate lows, excluding a last-session unconfirmed dip.
+    for k in reversed(range(2, len(bottoms))):
+        b = bottoms[k]
+        for j in reversed(range(1, k)):
+            a = bottoms[j]
+            if not 4 <= b-a <= 23:
+                continue
+            for i in reversed(range(j)):
+                first = bottoms[i]
+                if not 4 <= a-first <= 23 or b-first > 44:
+                    continue
+                levels = [float(l[idx]) for idx in (first, a, b)]
+                low0 = min(levels)
+                if low0 <= 0 or max(levels)/low0 > 1.065:
+                    continue
+                resistance = float(np.max(h[first:b+1]))
+                if resistance / low0 < 1.035:
+                    continue
+                # A cluster of 3 tests, then the first completed bullish
+                # close above intervening highs. Limit time after last test.
+                if not 3 <= n-1-b <= 14:
+                    continue
+                if (c[-1] > resistance*1.004
+                        and c[-2] <= resistance*1.004):
+                    return low0, resistance, (first, a, b)
+    return None
+
+
+def _rising_channel_breakout(o, h, l, c):
+    """Look for an upward-sloping swing channel after an earlier selloff.
+
+    Use only past confirmed swing highs/lows to project today's upper rail.
+    A close crossing the rail for the first time is the signal; no lookahead.
+    """
+    n = len(c)
+    if n < 58 or c[-1] <= o[-1]:
+        return None
+    body_ratio = (c[-1]-o[-1]) / max(1e-8, h[-1]-l[-1])
+    if body_ratio < .38:
+        return None
+    for window in (18, 22, 27, 32):
+        start, last = n-1-window, n-1
+        # The channel follows an observable correction/decline.
+        before = c[max(0, start-11)]
+        early = float(np.min(l[start:start+5]))
+        if before <= 0 or (early > before*.97
+                           and early > float(np.max(h[start-11:start]))*.93):
+            continue
+        highs = [start+i for i in _pivots(h[start:last], "high", 2, 2)]
+        lows = [start+i for i in _pivots(l[start:last], "low", 2, 2)]
+        if len(highs) < 2 or len(lows) < 2:
+            continue
+        h1, h2 = highs[-2:]
+        l1, l2 = lows[-2:]
+        # At least two higher highs and two higher lows, without an
+        # excessive single-bar rally masquerading as a channel.
+        if not (h[h2] > h[h1]*1.006 and l[l2] > l[l1]*1.006):
+            continue
+        high_slope = (h[h2]-h[h1])/(h2-h1)
+        low_slope = (l[l2]-l[l1])/(l2-l1)
+        if high_slope <= 0 or low_slope <= 0:
+            continue
+        rail_now = h[h2] + high_slope*(n-1-h2)
+        rail_prev = h[h2] + high_slope*(n-2-h2)
+        if (c[-1] > rail_now*1.003
+                and c[-2] <= rail_prev*1.003
+                and c[-1] > np.mean(c[-5:])):
+            return float(rail_now), float(l[l2]), (h1,h2,l1,l2)
+    return None
+
+
 def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windows=(20,52)):
     """Pattern tuples (side,name,base_score,reason,stage) for the FINAL bar."""
     if len(df) < 32:
@@ -195,6 +278,27 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
             add("bottom", "長下影止跌／支撐反彈", 52,
                 reason, "訊號當根／提前觀察",
                 category="低檔長下影止跌")
+    # User-shared example: several separate, similar low tests followed by
+    # a close above the intervening neckline. Do not signal on the lows alone.
+    if "多次探底突破" in allowed:
+        triple = _multi_test_reversal(h, l, c)
+        if triple is not None and cl > op:
+            base_low, neckline, pivots = triple
+            add("bottom", "多次探底後突破頸線", 64,
+                f"三次低點接近 {base_low:.2f} 元，收盤首次突破頸線 "
+                f"{neckline:.2f} 元（至少 0.4%）；請確認量價與後續走勢",
+                "突破已確認", category="多次探底突破")
+    # User-shared example: post-selloff higher-low/higher-high channel whose
+    # upper rail is first broken by a strong closing bullish candle.
+    if "上升通道突破" in allowed:
+        channel = _rising_channel_breakout(o, h, l, c)
+        if channel is not None:
+            rail, channel_low, pivots = channel
+            add("bottom", "上升通道上緣突破", 62,
+                f"回檔後形成逐步墊高的高低點，紅 K 收盤首次站上"
+                f"通道上緣約 {rail:.2f} 元；最近確認低點約 "
+                f"{channel_low:.2f} 元，仍須自行核對通道畫法",
+                "突破已確認", category="上升通道突破")
     # Strict early-bottom breakout, not a breakout after a long sideways base:
     # 1) the pivot must be the genuine recent low in an established decline;
     # 2) today's confirmation is nearby in price/time and must reclaim the
