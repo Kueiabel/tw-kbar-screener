@@ -122,7 +122,11 @@ def _multi_test_reversal(h, l, c):
     with the neckline, avoiding hindsight selection of a breakout.
     """
     n = len(c)
-    if n < 42 or c[-1] <= c[-2]:
+    if n < 42 or c[-1] <= c[-2] or c[-1] <= 0:
+        return None
+    # First bullish breakout, not a marginal close over resistance.
+    candle_range = max(float(h[-1]-l[-1]), 1e-8)
+    if (c[-1]-l[-1])/candle_range < .66:
         return None
     bottoms = [i for i in _pivots(l, "low") if n-49 <= i <= n-4]
     if len(bottoms) < 3:
@@ -149,8 +153,9 @@ def _multi_test_reversal(h, l, c):
                 # close above intervening highs. Limit time after last test.
                 if not 3 <= n-1-b <= 14:
                     continue
-                if (c[-1] > resistance*1.004
-                        and c[-2] <= resistance*1.004):
+                if (c[-1] > resistance*1.005
+                        and c[-2] <= resistance*1.005
+                        and c[-1] > c[-5:].mean()):
                     return low0, resistance, (first, a, b)
     return None
 
@@ -165,7 +170,7 @@ def _rising_channel_breakout(o, h, l, c):
     if n < 58 or c[-1] <= o[-1]:
         return None
     body_ratio = (c[-1]-o[-1]) / max(1e-8, h[-1]-l[-1])
-    if body_ratio < .38:
+    if body_ratio < .50 or (c[-1]-l[-1])/max(1e-8,h[-1]-l[-1]) < .70:
         return None
     for window in (18, 22, 27, 32):
         start, last = n-1-window, n-1
@@ -191,7 +196,9 @@ def _rising_channel_breakout(o, h, l, c):
             continue
         rail_now = h[h2] + high_slope*(n-1-h2)
         rail_prev = h[h2] + high_slope*(n-2-h2)
-        if (c[-1] > rail_now*1.003
+        # Require a meaningful first close outside the upper rail, rather
+        # than a wick-only breach or a tiny move above the projected line.
+        if (c[-1] > rail_now*1.006
                 and c[-2] <= rail_prev*1.003
                 and c[-1] > np.mean(c[-5:])):
             return float(rail_now), float(l[l2]), (h1,h2,l1,l2)
@@ -262,14 +269,15 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
         ma20 = float(np.mean(c[-20:]))
         ma52 = float(np.mean(c[-52:])) if len(c) >= 52 else ma20
         support_test = any(
-            level > 0 and lo <= level*1.018 and cl >= level*.985
+            level > 0 and abs(lo-level)/level <= .025
+            and cl >= level*.995
             for level in (ma20, ma52)
         )
         near_low_zone = (lo <= float(np.min(l[-21:-1]))*1.028 or
                          fresh_low or support_test)
         # Avoid tiny/noisy wicks and unrecovered long bearish closes.
-        wick_valid = (rejection >= .43 and lower >= max(body*.95, span*.43)
-                      and upper_ratio <= .28 and close_position >= .57)
+        wick_valid = (rejection >= .48 and lower >= max(body*1.25, span*.48)
+                      and upper_ratio <= .24 and close_position >= .66)
         if wick_valid and prev_decline and near_low_zone:
             reason = ("盤中向下測試後收回，長下影占本根 K 棒約"
                       f"{rejection:.0%}；"
