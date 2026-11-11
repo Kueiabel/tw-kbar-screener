@@ -350,12 +350,20 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
         add("bottom", "蜻蜓十字星", 42, "跌勢末端的長下影十字星；仍需後續紅 K 確認", "提前預警")
     if is_doji and upper >= .65*span and lower <= .15*span and near_top and prior_up:
         add("top", "墓碑十字星", 42, "漲勢末端的長上影十字星；仍需後續黑 K 確認", "提前預警")
-    # Independently selectable bullish doji. It must form near a recent low
-    # after a decline; a doji alone is an early warning, NOT a confirmed rise.
-    if is_doji and near_bottom and prior_down and (
-            lower >= .15*span or upper >= .15*span):
+    # A standard bullish doji must have BOTH visible upper and lower shadows.
+    # Reject one-sided dragonfly/grave-stone candles and limit-up gap bars:
+    # 3661 on 2026-11-10 O=H=C=3420, L=3360 is a dragonfly-like
+    # long-lower-wick candle, not the symmetric doji the user requested.
+    regular_doji = (
+        body <= .06*span
+        and upper >= .20*span
+        and lower >= .20*span
+        and min(upper, lower) >= .35*max(upper, lower)
+        and abs(cl/c[-2] - 1) <= .05
+    )
+    if regular_doji and near_bottom and prior_down:
         add("bottom", "多頭十字星", 35,
-            "跌勢低檔出現小實體十字星，顯示賣壓可能放緩；仍待後續紅 K 確認",
+            "跌勢低檔出現上下影線均清晰的小實體十字星；僅為止跌觀察，非已確認起漲",
             "提前觀察", category="多頭十字星")
     if is_doji and lower >= .20*span and upper >= .20*span:
         if near_top and prior_up:
