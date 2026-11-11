@@ -552,12 +552,9 @@ with search_panel:
         price_error = '股價請輸入有效數字（例如 30、150.5），也可以留白。'
     if price_error:
         st.error(price_error)
-    st.markdown('**基本篩選條件**')
-    require_above_ma5 = st.checkbox(
-        '最新收盤價站上 MA5（五期均線）',
-        value=False,
-        help='勾選後，只保留最新收盤價高於最近五根 K 棒收盤均價的股票。日 K 是五日線；週 K 是五週線。這是價格位置條件，不是黃金交叉。')
-    st.caption('日 K＝站上五日線；週 K＝站上五週線。可自行勾選，不影響其他型態設定。')
+    # Retire the old MA5 gating option: the three V setups themselves
+    # are the ONLY technical selection switches in this streamlined edition.
+    require_above_ma5 = False
     st.markdown('**V 型底部：3 種獨立訊號**')
     st.caption('前第三根 K 尋找底部、第二根觀察回升；三種符合任一項就列入，並顯示符合哪些訊號。')
     select_v_price = st.checkbox('① V 型價格反轉', value=True,
