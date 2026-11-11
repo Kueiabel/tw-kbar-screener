@@ -54,7 +54,7 @@ def scan(df, selected=("V型反轉","V底K棒","V底放量")):
 
 class IndependentVSignalsTest(unittest.TestCase):
     def test_price_only_qualifies_by_itself(self):
-        bottom, _, _, _ = scan(fixture(day2_close=103.))
+        bottom, _, _, _ = scan(fixture(day2_close=105.))
         self.assertEqual(len(bottom), 1)
         self.assertEqual(bottom.iloc[0]["matched_categories"], "V型反轉")
 
@@ -75,7 +75,7 @@ class IndependentVSignalsTest(unittest.TestCase):
 
     def test_all_three_are_listed_with_or_mode(self):
         bottom, _, _, _ = scan(fixture(
-            shape="hammer", pivot_volume=6_000_000, day2_close=103.))
+            shape="hammer", pivot_volume=6_000_000, day2_close=105.))
         self.assertEqual(len(bottom), 1)
         cats = bottom.iloc[0]["matched_categories"]
         for x in ("V型反轉","V底K棒","V底放量"):
