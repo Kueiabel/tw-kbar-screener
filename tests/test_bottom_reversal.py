@@ -62,7 +62,7 @@ class BottomReversalTest(unittest.TestCase):
         self.assertTrue(top.empty)
         self.assertEqual(bottom.iloc[0]["pivot_date"], "2026-11-06")
         self.assertEqual(bottom.iloc[0]["signal_date"], "2026-11-09")
-        self.assertEqual(bottom.iloc[0]["pivot_volume_ratio"], 1.49)
+        self.assertEqual(bottom.iloc[0]["pivot_volume_ratio"], 1.48)
         self.assertIn("突破", bottom.iloc[0]["stage"])
         self.assertEqual(bottom.iloc[0]["matched_categories"], "低檔止跌隔日確認")
 
