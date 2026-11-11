@@ -395,9 +395,15 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame,
         'volume_lots':'今日量(張)','avg_volume_lots':'20日均量(張)',
         'avg_turnover_100m':'20日均成交額(億)','volume_ratio':'量比'
     })
+    # Older Streamlit sessions may still hold cached rankings from before the
+    # extra pivot fields existed. Keep the display stable until a fresh scan.
+    for optional_col, default in (
+            ("止跌日期", ""), ("止跌日量／前5期均量", 0.0)):
+        if optional_col not in shown.columns:
+            shown[optional_col] = default
     # First five as readable, thumb-friendly rows, without horizontal swiping.
     # The original full 25-stock table, CSV, and chart remain available below.
-    st.caption('優先查看前 5 檔；完整 25 檔榜單可在下方展開')
+    st.caption('優先查看前 5 檔；完整 25 檔榜單可在下方展開。新量能條件需重新搜尋才會套用。')
     quick_rows = []
     for _, item in frame.head(5).iterrows():
         code = escape(str(item['code']))
