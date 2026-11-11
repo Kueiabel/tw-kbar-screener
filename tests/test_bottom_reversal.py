@@ -34,11 +34,15 @@ def fixture(pivot_volume=6_291_000, confirm_volume=4_937_000,
         "2026-11-04": (4610, 4680, 4300, 4555, 5_803_000),
         "2026-11-05": (4335, 4335, 4100, 4100, 4_701_000),
         "2026-11-06": (
-            3890 if wick else low, 3980 if wick else 3920,
-            low, 3930 if wick else 3820, pivot_volume
+            (4520 if low > 4200 else 3890) if wick else low,
+            (4580 if low > 4200 else 3980) if wick else 3920,
+            low,
+            (4540 if low > 4200 else 3930) if wick else 3820,
+            pivot_volume
         ),
-        "2026-11-09": (3910, 4170, confirm_low,
-                       confirm_close, confirm_volume),
+        "2026-11-09": (3910 if confirm_close < 4500 else 4560,
+                       max(4170, confirm_close + 30),
+                       confirm_low, confirm_close, confirm_volume),
         "2026-11-10": (4240, 4370, 4100, 4310, 3_600_000),
     }
     for row in rows:
@@ -101,7 +105,8 @@ class BottomReversalTest(unittest.TestCase):
         self.assertTrue(bottom.empty)
 
     def test_pivot_must_be_true_prior_twenty_bar_low(self):
-        bottom, _, _, _ = run_scan(fixture(low=4300))
+        bottom, _, _, _ = run_scan(fixture(
+            low=4300, confirm_close=4660, confirm_low=4400))
         self.assertTrue(bottom.empty)
 
     def test_main_signal_still_scans_when_lookback_one(self):
