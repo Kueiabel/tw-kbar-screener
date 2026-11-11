@@ -558,60 +558,25 @@ with search_panel:
         value=False,
         help='勾選後，只保留最新收盤價高於最近五根 K 棒收盤均價的股票。日 K 是五日線；週 K 是五週線。這是價格位置條件，不是黃金交叉。')
     st.caption('日 K＝站上五日線；週 K＝站上五週線。可自行勾選，不影響其他型態設定。')
-    st.markdown('**K 棒訊號**')
-    st.caption('主訊號：前兩交易日創 20 K 新低＋槌頭／長下影；前一交易日收高；兩日均量放大。')
-    select_early_confirmation = st.checkbox(
-        '20 K 新低＋長下影／槌頭＋隔日轉強（主搜尋）', value=True,
-        help='日K：查詢日往前兩交易日是止跌K、前一交易日是確認K；週K則以已完成的週K為單位。止跌K須創前20根K新低、20根走勢向下、明顯長下影或槌頭（無下影線不合格）。止跌日量與兩根K均量都須大於止跌K之前五根均量；確認K守住低點且收盤高於止跌K。')
-    extra_pattern_options = [
-        '低檔長下影止跌', '低檔開低收回',
-        '低檔垂頭線', '低檔倒垂頭線',
-        '晨星反轉', '多頭吞噬', '多頭孕育線', '穿刺線',
-        '錘頭隔日突破', '低點止跌突破',
-        '多次探底突破', '上升通道突破', '放量買盤轉強',
-        '高檔上吊線', '高檔流星線',
-        '空頭吞噬', '空頭孕育線', '烏雲蓋頂',
-        '夜星反轉', '向上跳空', '向下跳空',
-        'K 棒反轉', 'W 底／M 頭', '均線突破／跌破',
-        'MACD 交叉', 'KD 交叉', 'RSI 回升／轉弱',
-    ]
-    extra_signals = st.multiselect(
-        '其他型態（選填）',
-        options=extra_pattern_options, default=[],
-        format_func=lambda x: {
-            'K 棒反轉': '其他 K 棒反轉（綜合）',
-            '均線突破／跌破': '股價穿越均線 MA5／10／20／52',
-            '低檔長下影止跌': '長下影止跌（當根提前觀察）',
-            '低檔開低收回': '開低收回（當根提前觀察）',
-            '晨星反轉': '晨星三 K 確認',
-            '低檔垂頭線': '槌頭棒（當根提前觀察）',
-            '低檔倒垂頭線': '倒槌頭（當根提前觀察）',
-            '高檔上吊線': '上吊線（高檔長下影）',
-            '高檔流星線': '流星線（高檔長上影）',
-            '多次探底突破': '多次探底 → 頸線突破',
-            '上升通道突破': '上升通道 → 突破上緣',
-            '放量買盤轉強': '放量紅 K 突破（非買超統計）',
-        }.get(x, x),
-        help='其他型態預設不啟用，十字星已從全部選項及訊號清單移除。')
-    require_all_signals = st.checkbox(
-        '必須符合全部勾選訊號', value=False,
-        help='預設符合任一勾選訊號就列入；開啟後同一股票須在觀察天數內符合所有選取的訊號。')
+    st.markdown('**V 型底部：3 種獨立訊號**')
+    st.caption('前第三根 K 尋找底部、第二根觀察回升；三種符合任一項就列入，並顯示符合哪些訊號。')
+    select_v_price = st.checkbox('① V 型價格反轉', value=True,
+        help='下跌後出現近 12 根 K 的相對低點，第二根 K 收盤上升，逐步形成 V 型。')
+    select_v_candle = st.checkbox('② V 底 K 棒：槌頭／長下影／實體紅 K', value=True,
+        help='V 底可有槌頭、長下影或明顯紅色實體 K，並由第二根 K 收高確認。')
+    select_v_volume = st.checkbox('③ V 底放大量', value=True,
+        help='V 底當根成交量至少為前五根平均量的 1.25 倍，第二根 K 收高。這是總成交量，不代表法人買超。')
     targets = []
-    if select_early_confirmation:
-        targets.append('低檔止跌隔日確認')
-    targets.extend(extra_signals)
+    if select_v_price:
+        targets.append('V型反轉')
+    if select_v_candle:
+        targets.append('V底K棒')
+    if select_v_volume:
+        targets.append('V底放量')
+    require_all_signals = False
+    signal_days = 1
     ma_windows = [5, 10, 20, 52]
-    # Avoid nesting expanders: Streamlit does not support an expander inside another.
-    advanced_panel = (st.container() if 'results' in st.session_state
-                      else st.expander('更多設定：訊號天數'))
-    with advanced_panel:
-        if 'results' in st.session_state:
-            st.caption('進階設定 · 訊號天數')
-        signal_days = st.select_slider('最近幾個交易日出現訊號',
-            options=[1,2,3,4,5],value=3)
-        history_days = st.slider('歷史回溯天數',120,250,165,5)
-    if select_early_confirmation and signal_days == 1:
-        st.caption('主訊號固定檢查查詢日前兩根 K（日 K 為兩個交易日、週 K 為兩個完整週）；其他型態依指定觀察天數。')
+    history_days = 165
     valid_targets = bool(targets) and price_error is None
     if not targets:
         st.warning('請至少勾選一種搜尋型態。')
@@ -682,9 +647,9 @@ if 'results' in st.session_state:
         st.markdown('''
 **判斷型態**
 
-- **底部預設：** 查詢日往前兩根 K 棒是**真正的前20根 K 棒新低**、之前20根走勢向下，且**一定有長下影線或槌頭棒**（沒有下影線一律不合格）。前兩根 K 中的止跌日量須高於前五期均量，並且「止跌日＋前一根確認 K」平均量也須高於止跌日前五期均量；確認 K 收盤高於止跌 K 收盤並守住止跌最低價。訊號日期為確認 K 日期，另列止跌日期。
+- **底部預設：** 3 種 V 型訊號「V 型價格反轉」「V 底 K 棒（槌頭／長下影／實體紅 K）」「V 底放大量」，**符合任一個就列入**，不要求三者同時成立。K 線分別以查詢日往前第 2、1 根判斷；當日作為第三日觀察，榜單標示底部日期、首次收高日期及符合型態。
 - **組合方式：** 預設符合任一勾選型態就列入；勾選「必須符合所有」時，同一股票需在選定觀察天數內符合全部勾選訊號，可在不同交易日成立。成交量、成交金額、股價及可選 MA5 屬於必須符合的基本過濾條件。
-- **其他可選：** 晨星、當根槌頭或長下影、低檔開低收回、多次探底、上升通道、放量紅 K、均線等；未勾選不參與搜尋。
+- **搜尋面板：** 已移除舊版各種型態、必須全符合與舊版嚴格的 20 K 新低限制；其他基本流動性和價格欄位保留可調。
 - **頂部：** 流星線（長上影）、空頭吞噬、夜星三 K、突破前高後跌回、局部高點二 K 確認、M 頭雛形／跌破頸線、20 日區間向下跌破。
 - **評分：** 型態基本分＋流動性＋訊號日量比＋均線位置／方向－訊號距今交易日的時間折減，最高 100 分。分數不能解讀為上漲或下跌的機率。
 - **榜單：** 每檔最多入選一次，但會列出全部匹配的型態；分數以最高分訊號為準。只有符合條件才列入，可能不足 25 檔。
