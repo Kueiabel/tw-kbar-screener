@@ -305,7 +305,8 @@ def render_waiting_ad():
 
 EXPORT_FIELDS = {
     'rank':'排名','code':'代號','name':'公司','industry':'產業類別','category':'搜尋類別','pattern':'型態','stage':'階段',
-    'score':'評分','signal_date':'訊號日期','age':'距今交易日',
+    'score':'評分','signal_date':'訊號日期','pivot_date':'止跌日期',
+    'pivot_volume_ratio':'止跌日量／前5期均量','age':'距今交易日',
     'close':'最新收盤價','change_pct':'當日漲跌幅(%)','volume_lots':'當日成交量(張)',
     'avg_volume_lots':'20日均量(張)','avg_turnover_100m':'20日均成交金額(億元)',
     'volume_ratio':'訊號日量比','sma20':'20日均線',
@@ -387,7 +388,9 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame,
         'rank':'排名','code':'代號','name':'股票名稱','industry':'產業類別','category':'搜尋類別','pattern':'型態','stage':'階段',
         'matched_patterns':'符合型態','matched_categories':'符合搜尋項目',
         'matched_count':'符合型態數',
-        'score':'分數','signal_date':'訊號日期','age':'距今天數(交易日)',
+        'score':'分數','signal_date':'訊號日期','pivot_date':'止跌日期',
+        'pivot_volume_ratio':'止跌日量／前5期均量',
+        'age':'距今天數(交易日)',
         'close':'收盤價','change_pct':'漲跌幅 %',
         'volume_lots':'今日量(張)','avg_volume_lots':'20日均量(張)',
         'avg_turnover_100m':'20日均成交額(億)','volume_ratio':'量比'
@@ -402,6 +405,12 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame,
         pattern = escape(str(item.get('matched_patterns', item['pattern'])))
         stage = escape(str(item['stage']))
         signal_date = escape(str(item['signal_date']))
+        pivot_date = escape(str(item.get('pivot_date') or ''))
+        pivot_volume_ratio = float(item.get('pivot_volume_ratio') or 0)
+        volume_info = (f' · 止跌日量比 {pivot_volume_ratio:.2f} 倍'
+                       if pivot_date and pivot_volume_ratio > 0 else '')
+        date_label = (f'止跌 {pivot_date} → 確認 {signal_date}{volume_info}'
+                      if pivot_date else f'訊號日期：{signal_date}')
         industry_value = item.get('industry', '未分類')
         industry = escape(str(industry_value)) if pd.notna(industry_value) else '未分類'
         score = int(item['score'])
@@ -412,7 +421,7 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame,
             f'<span class="qs-stock-score">{score} 分</span>'
             '</div><div class="qs-stock-bottom">'
             f'<span class="qs-stock-industry">產業：{industry}</span> · 收盤 {price:,.2f} 元'
-            f'<div>符合型態：{pattern}</div><div>訊號日期：{signal_date} · {stage}</div>'
+            f'<div>符合型態：{pattern}</div><div>{date_label} · {stage}</div>'
             '</div></div>'
         )
     st.markdown('<div class="qs-rows">' + ''.join(quick_rows) + '</div>',
@@ -426,7 +435,7 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame,
     with st.expander('更多欄位（成交量、成交金額、日期等）'):
         st.dataframe(shown[['排名','代號','股票名稱','產業類別',
             '搜尋類別','符合型態','符合搜尋項目','符合型態數',
-            '階段','分數','訊號日期','收盤價',
+            '階段','分數','止跌日期','訊號日期','止跌日量／前5期均量','收盤價',
             '漲跌幅 %','今日量(張)','20日均量(張)','20日均成交額(億)','量比']],
             hide_index=True,use_container_width=True,
             column_config={'漲跌幅 %':st.column_config.NumberColumn(
@@ -536,10 +545,10 @@ with search_panel:
         help='勾選後，只保留最新收盤價高於最近五根 K 棒收盤均價的股票。日 K 是五日線；週 K 是五週線。這是價格位置條件，不是黃金交叉。')
     st.caption('日 K＝站上五日線；週 K＝站上五週線。可自行勾選，不影響其他型態設定。')
     st.markdown('**K 棒訊號**')
-    st.caption('預設尋找「下跌接近前低 → 當根止跌 → 下一交易日守低轉強」。無須同時符合其他型態。')
+    st.caption('主要訊號：低檔止跌 K ＋ 當日量 > 前 5 期均量 ＋ 隔日守低轉強。其他型態皆選填。')
     select_early_confirmation = st.checkbox(
         '低檔止跌 → 隔日轉強確認（主要搜尋）', value=True,
-        help='前一交易日在近期低點形成槌頭、長下影或開低收回；下一交易日未跌破低點且收盤高於止跌 K 的收盤。更強者會標示突破止跌 K 高點。例：11/06（週五）止跌，11/09（週一）確認。')
+        help='前一交易日位於近期低點、出現槌頭／長下影／開低收回，且當日成交量高於之前五個交易日平均量；下一交易日守住低點且收盤高於止跌 K 收盤。榜單會列出止跌日期、確認日期、量比。')
     extra_pattern_options = [
         '低檔長下影止跌', '低檔開低收回',
         '低檔垂頭線', '低檔倒垂頭線',
@@ -657,7 +666,7 @@ if 'results' in st.session_state:
         st.markdown('''
 **判斷型態**
 
-- **底部預設：** 下跌至近期低點後，止跌 K 棒為槌頭、長下影或開低收回；下一交易日守住前低且收盤站上止跌 K 收盤，即列入「低檔止跌隔日確認」。訊號日為隔日確認日，說明另外列出止跌 K 日期。十字星不參與搜尋。
+- **底部預設：** 先有下跌且止跌 K 出現在近 20 期低檔，形狀可為槌頭、長下影或開低收回；**止跌當日成交量必須大於前五個已完成交易日平均量**；下一交易日守住止跌 K 低點、收盤高於止跌 K 收盤。搜尋結果列出止跌日、確認日與止跌日量比。十字星不參與搜尋。
 - **組合方式：** 預設符合任一勾選型態就列入；勾選「必須符合所有」時，同一股票需在選定觀察天數內符合全部勾選訊號，可在不同交易日成立。成交量、成交金額、股價及可選 MA5 屬於必須符合的基本過濾條件。
 - **其他可選：** 晨星、當根槌頭或長下影、低檔開低收回、多次探底、上升通道、放量紅 K、均線等；未勾選不參與搜尋。
 - **頂部：** 流星線（長上影）、空頭吞噬、夜星三 K、突破前高後跌回、局部高點二 K 確認、M 頭雛形／跌破頸線、20 日區間向下跌破。
