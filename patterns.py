@@ -308,6 +308,14 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
         pre_high20 = float(np.max(h[pivot-20:pivot]))
         pre_closes = c[pivot-10:pivot]
         previous_close = float(c[pivot-1])
+        # Compare the VOLUME OF THE LOW-DAY itself with the five completed
+        # trading bars strictly BEFORE that day (never include confirmation).
+        # Daily bars -> previous five trading days; weekly bars -> five weeks.
+        prior_five_volume = float(np.mean(shares[pivot-5:pivot]))
+        low_day_volume = float(shares[pivot])
+        volume_expansion = (prior_five_volume > 0
+                            and low_day_volume > prior_five_volume)
+        low_day_vol_ratio = low_day_volume / max(prior_five_volume, 1.0)
         was_declining = (
             previous_close < float(c[pivot-7])*.985
             or previous_close < float(np.max(pre_closes))*.955
@@ -333,7 +341,8 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
             and cl > p_close
             and (cl > op or op > p_close)
         )
-        if was_declining and tested_low and pivot_shape and recovered_next:
+        if (was_declining and tested_low and pivot_shape
+                and volume_expansion and recovered_next):
             strong = cl > p_high
             pivot_shape_name = (
                 "槌頭棒" if hammer_like else
@@ -344,8 +353,11 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
             tier = "突破低點 K 高點" if strong else "收盤高於止跌 K 收盤"
             add("bottom", "低檔止跌→隔日轉強確認", 73 if strong else 61,
                 f"{date_low} 下跌後測試低點 {p_low:.2f}，"
-                f"出現{pivot_shape_name}；{date_confirm} 下一交易日"
-                f"守住前低且{tier}（確認收盤 {cl:.2f}）；"
+                f"出現{pivot_shape_name}，當日量為前 5 期均量 "
+                f"{low_day_vol_ratio:.2f} 倍（{low_day_volume/1000:,.0f} 張 "
+                f"> {prior_five_volume/1000:,.0f} 張）；"
+                f"{date_confirm} 下一交易日守住前低且{tier}"
+                f"（確認收盤 {cl:.2f}）；"
                 "供進一步觀察，不代表後續必然上漲",
                 "隔日突破確認" if strong else "隔日初步確認",
                 category="低檔止跌隔日確認")
