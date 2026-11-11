@@ -1,128 +1,112 @@
-"""Regression tests for fresh 20-bar low + mandatory wick + volume confirmation.
+"""Tests for the 3 independently selectable V-bottom scans.
 
-Run: python -m unittest discover -s tests -v
+python -m unittest discover -s tests -v
 
-All prices and volumes below are SYNTHETIC regression examples designed
-to exercise code, NOT a historical 2383 backtest or buy-signal validation.
+Fixtures are synthetic, not claims of a real-stock historical backtest.
 """
 import unittest
-
 import numpy as np
 import pandas as pd
 
-from patterns import _patterns_at, screen
+from patterns import screen
 
 
-def fixture(pivot_volume=6_291_000, confirm_volume=4_937_000,
-            confirm_close=4070.0, confirm_low=3800.0,
-            wick=True, low=3690.0, decline=True):
-    dates = pd.bdate_range(end="2026-11-10", periods=75)
-    base = np.linspace(5200.0, 4630.0, len(dates))
+def fixture(shape="none", pivot_volume=3_500_000,
+            day2_close=95., rising_context=False, day2_low=85.):
+    dates = pd.bdate_range(end="2026-11-10", periods=80)
+    prices = np.linspace(133, 104, len(dates))
     rows = []
-    for day, price in zip(dates, base):
+    for date, price in zip(dates, prices):
+        if rising_context:
+            price = 100.0
         rows.append({
-            "date": day.strftime("%Y-%m-%d"), "code": "9001",
-            "name": "合成案例", "open": price+10,
-            "high": price+45, "low": price-45, "close": price,
-            "shares": 3_500_000, "turnover": 13_000_000_000,
+            "date": date.strftime("%Y-%m-%d"), "code": "9001",
+            "name": "模擬標的", "open": price+.5, "high": price+2,
+            "low": price-2, "close": price,
+            "shares": 3_500_000, "turnover": 3_500_000*price,
         })
-    # These late rows create a 20-bar downtrend and a fresh low on 11/06.
-    late = {
-        "2026-10-30": (4570, 4760, 4560, 4675, 3_862_000),
-        "2026-11-02": (4500, 4835, 4500, 4705, 3_375_000),
-        "2026-11-03": (4560, 4780, 4355, 4395, 3_441_000),
-        "2026-11-04": (4610, 4680, 4300, 4555, 5_803_000),
-        "2026-11-05": (4335, 4335, 4100, 4100, 4_701_000),
-        "2026-11-06": (
-            (4520 if low > 4200 else 3890) if wick else low,
-            (4580 if low > 4200 else 3980) if wick else 3920,
-            low,
-            (4540 if low > 4200 else 3930) if wick else 3820,
-            pivot_volume
-        ),
-        "2026-11-09": (3910 if confirm_close < 4500 else 4560,
-                       max(4170, confirm_close + 30),
-                       confirm_low, confirm_close, confirm_volume),
-        "2026-11-10": (4240, 4370, 4100, 4310, 3_600_000),
-    }
-    for row in rows:
-        if row["date"] in late:
-            op, hi, lo, cl, vol = late[row["date"]]
-            row.update(open=op, high=hi, low=lo, close=cl,
-                       shares=vol, turnover=vol*cl)
-    if not decline:
-        # Keep the last few signal-day shapes identical, but flatten the
-        # preceding twenty bars to remove the downtrend.
-        for row in rows:
-            if "2026-10-12" <= row["date"] <= "2026-10-29":
-                row.update(open=4185, high=4220, low=4130,
-                           close=4200)
+    # T-2: local low, T-1: first recovery, T: observation
+    p = rows[-3]
+    if shape == "hammer":
+        p.update(open=90., high=94., low=80., close=93.)
+    elif shape == "red_body":
+        p.update(open=80., high=96., low=80., close=94.)
+    else:
+        p.update(open=92., high=97., low=80., close=84.)
+    p.update(shares=pivot_volume,
+             turnover=pivot_volume*p["close"])
+    rows[-2].update(open=91., high=max(day2_close+2,96.),
+                    low=day2_low, close=day2_close,
+                    shares=3_500_000, turnover=3_500_000*day2_close)
+    rows[-1].update(open=98., high=103., low=96., close=101.,
+                    shares=3_500_000, turnover=353_500_000)
     return pd.DataFrame(rows)
 
 
-def run_scan(data, signal_days=3, as_of="2026-11-10"):
+def scan(df, selected=("V型反轉","V底K棒","V底放量")):
     return screen(
-        data, {"9001": "合成案例"}, as_of,
+        df, {"9001": "模擬標的"}, "2026-11-10",
         min_vol_lots=1000, min_turnover_100m=3.,
-        min_price=10., signal_days=signal_days, min_history_bars=65,
-        enabled_categories=("低檔止跌隔日確認",)
-    )
+        min_price=10., enabled_categories=selected,
+        require_all_signals=False, signal_days=1,
+        min_history_bars=65)
 
 
-class BottomReversalTest(unittest.TestCase):
-    def test_two_days_before_scan_is_wick_and_previous_day_confirms(self):
-        bottom, top, _, _ = run_scan(fixture())
+class IndependentVSignalsTest(unittest.TestCase):
+    def test_price_only_qualifies_by_itself(self):
+        bottom, _, _, _ = scan(fixture(day2_close=103.))
         self.assertEqual(len(bottom), 1)
-        self.assertTrue(top.empty)
-        row = bottom.iloc[0]
-        self.assertEqual(row["pivot_date"], "2026-11-06")
-        self.assertEqual(row["signal_date"], "2026-11-09")
-        self.assertEqual(row["age"], 1)
-        self.assertEqual(row["matched_categories"], "低檔止跌隔日確認")
-        self.assertGreater(row["pivot_volume_ratio"], 1)
-        self.assertGreater(row["two_day_volume_ratio"], 1)
+        self.assertEqual(bottom.iloc[0]["matched_categories"], "V型反轉")
 
-    def test_missing_lower_shadow_never_qualifies(self):
-        bottom, _, _, _ = run_scan(fixture(wick=False))
-        self.assertTrue(bottom.empty)
-
-    def test_pivot_volume_must_exceed_earlier_five(self):
-        bottom, _, _, _ = run_scan(fixture(pivot_volume=3_000_000))
-        self.assertTrue(bottom.empty)
-
-    def test_average_of_two_signal_days_must_exceed_earlier_five(self):
-        bottom, _, _, _ = run_scan(fixture(confirm_volume=500_000))
-        self.assertTrue(bottom.empty)
-
-    def test_confirmation_must_close_above_pivot(self):
-        bottom, _, _, _ = run_scan(
-            fixture(confirm_close=3900, confirm_low=3800))
-        self.assertTrue(bottom.empty)
-
-    def test_confirmation_must_hold_pivot_low(self):
-        bottom, _, _, _ = run_scan(
-            fixture(confirm_close=4070, confirm_low=3650))
-        self.assertTrue(bottom.empty)
-
-    def test_pivot_must_be_true_prior_twenty_bar_low(self):
-        bottom, _, _, _ = run_scan(fixture(
-            low=4300, confirm_close=4660, confirm_low=4400))
-        self.assertTrue(bottom.empty)
-
-    def test_main_signal_still_scans_when_lookback_one(self):
-        bottom, _, _, _ = run_scan(fixture(), signal_days=1)
+    def test_hammer_only_qualifies_by_itself(self):
+        bottom, _, _, _ = scan(fixture(shape="hammer"))
         self.assertEqual(len(bottom), 1)
+        self.assertEqual(bottom.iloc[0]["matched_categories"], "V底K棒")
 
-    def test_scan_day_cannot_be_used_as_confirmation(self):
-        df = fixture().iloc[:-1].copy()
-        bottom, _, _, _ = run_scan(df, as_of="2026-11-09")
+    def test_solid_red_body_qualifies_as_shape(self):
+        bottom, _, _, _ = scan(fixture(shape="red_body"))
+        self.assertEqual(len(bottom), 1)
+        self.assertIn("V底K棒", bottom.iloc[0]["matched_categories"])
+
+    def test_volume_only_qualifies_by_itself(self):
+        bottom, _, _, _ = scan(fixture(pivot_volume=6_000_000))
+        self.assertEqual(len(bottom), 1)
+        self.assertEqual(bottom.iloc[0]["matched_categories"], "V底放量")
+
+    def test_all_three_are_listed_with_or_mode(self):
+        bottom, _, _, _ = scan(fixture(
+            shape="hammer", pivot_volume=6_000_000, day2_close=103.))
+        self.assertEqual(len(bottom), 1)
+        cats = bottom.iloc[0]["matched_categories"]
+        for x in ("V型反轉","V底K棒","V底放量"):
+            self.assertIn(x, cats)
+
+    def test_no_confirmation_bar_excluded(self):
+        bottom, _, _, _ = scan(fixture(day2_close=80.,day2_low=78.))
         self.assertTrue(bottom.empty)
 
-    def test_no_doji_signal_is_emitted(self):
-        result = _patterns_at(
-            fixture().iloc[:-1], enabled_categories=("多頭十字星",)
-        )
-        self.assertFalse(any(x[1] == "多頭十字星" for x in result))
+    def test_without_prior_downtrend_excluded(self):
+        bottom, _, _, _ = scan(fixture(
+            shape="hammer",pivot_volume=6_000_000,
+            rising_context=True))
+        self.assertTrue(bottom.empty)
+
+    def test_not_allowed_before_third_day(self):
+        df = fixture().iloc[:-1]
+        bottom, _, _, _ = screen(
+            df, {"9001":"模擬標的"}, "2026-11-09",
+            enabled_categories=("V型反轉","V底K棒","V底放量"),
+            min_vol_lots=1000,min_turnover_100m=3.,
+            min_history_bars=65,signal_days=1)
+        # The scan date -2/-1 is then an earlier pair, not 11/06+11/09.
+        self.assertTrue(bottom.empty)
+
+    def test_price_range_and_liquidity_filters_unchanged(self):
+        bottom, _, _, _ = screen(
+            fixture(shape="hammer"), {"9001":"模擬標的"},
+            "2026-11-10", min_price=200., min_history_bars=65,
+            enabled_categories=("V底K棒",),signal_days=1)
+        self.assertTrue(bottom.empty)
 
 
 if __name__ == "__main__":
