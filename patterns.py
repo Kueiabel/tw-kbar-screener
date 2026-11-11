@@ -84,35 +84,84 @@ def _pair_pattern(o, h, l, c, side: str):
     return []
 
 
-def _hammer_at(o, h, l, c, idx: int) -> bool:
-    """Detect a bottom hammer at idx using only data available through idx.
+def _candle_geometry(op: float, hi: float, lo: float, cl: float):
+    """Shape of a single K bar, independent of its absolute stock price.
 
-    The hammer shape is a *candidate* reversal, not proof of an uptrend.
-    A separate next-session close confirms a potential turn.
+    Return relative lengths of body, upper wick and lower wick as coordinates
+    in a normalized candle drawing. Zero-range bars have no useful shape.
     """
+    height = float(hi-lo)
+    if height <= 0 or not np.isfinite(height):
+        return None
+    body = abs(float(cl-op))
+    upper = max(0.0, float(hi-max(op, cl)))
+    lower = max(0.0, float(min(op, cl)-lo))
+    return np.array((body, upper, lower), dtype=float) / height
+
+
+def _shape_match(parts, templates, max_distance: float):
+    """Weighted template similarity in normalized K-line drawing space."""
+    if parts is None:
+        return False
+    return min(float(np.sum(np.abs(parts - template)))
+               for template in templates) <= max_distance
+
+
+# Compare geometric layout rather than prices or % daily changes.
+_DOJI_TEMPLATES = (
+    np.array((.02, .49, .49)),
+    np.array((.05, .38, .57)),
+    np.array((.05, .57, .38)),
+)
+_HAMMER_TEMPLATES = (
+    np.array((.16, .06, .78)),
+    np.array((.24, .04, .72)),
+    np.array((.08, .10, .82)),
+)
+_INVERTED_HAMMER_TEMPLATES = tuple(
+    np.array((v[0], v[2], v[1])) for v in _HAMMER_TEMPLATES
+)
+
+
+def _is_regular_doji(op, hi, lo, cl) -> bool:
+    """A cross with both visible shadows, never a one-sided dragonfly."""
+    p = _candle_geometry(op, hi, lo, cl)
+    return bool(p is not None
+                and p[1] > 0 and p[2] > 0
+                and p[0] < min(p[1], p[2])*.35
+                and _shape_match(p, _DOJI_TEMPLATES, .32))
+
+
+def _is_hammer_shape(op, hi, lo, cl, inverted: bool = False) -> bool:
+    """Body at one end of the bar with a clearly dominant opposite wick."""
+    p = _candle_geometry(op, hi, lo, cl)
+    if p is None:
+        return False
+    body, upper, lower = p
+    long_wick, short_wick = (upper, lower) if inverted else (lower, upper)
+    return bool(long_wick > 0 and
+                long_wick > 2*max(body, 1e-8) and
+                short_wick < long_wick*.30 and
+                _shape_match(p, (_INVERTED_HAMMER_TEMPLATES if inverted
+                                 else _HAMMER_TEMPLATES), .34))
+
+
+def _hammer_at(o, h, l, c, idx: int) -> bool:
+    """Shape-first bottom hammer with preceding decline/low-zone context."""
     end = len(c) + idx if idx < 0 else idx
     if end < 31:
         return False
     op, hi, lo, cl = (float(arr[end]) for arr in (o, h, l, c))
-    span = max(0.00001, hi - lo)
-    body = abs(cl - op)
-    lower = min(op, cl) - lo
-    upper = hi - max(op, cl)
+    if not _is_hammer_shape(op, hi, lo, cl):
+        return False
     prior_down = c[end-1] < c[end-8] * .988
     prior_up = c[end-1] > c[end-8] * 1.012
     low20 = float(np.min(l[end-20:end]))
     low30 = float(np.min(l[end-30:end]))
     high30 = float(np.max(h[end-30:end]))
     pos = (cl-low30) / max(1e-8, high30-low30)
-    near_bottom = prior_down or ((lo <= low20*1.035 or pos <= .33)
-                                 and not prior_up)
-    return bool(
-        lower >= 2*max(body, span*.08)
-        and lower >= span*.52
-        and upper <= span*.23
-        and cl >= lo + span*.60
-        and near_bottom
-    )
+    return bool(prior_down or ((lo <= low20*1.035 or pos <= .33)
+                               and not prior_up))
 
 
 def _multi_test_reversal(h, l, c):
@@ -343,35 +392,33 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
                 break
     if upper >= 2*max(body,span*.08) and upper >= span*.52 and lower <= span*.23 and cl <= lo+span*.4 and near_top:
         add("top", "流星線／長上影", 37, "上影線明顯長於實體，收盤回到區間下半部")
-    # Candlestick families shown in the reference examples; neutral/ambiguous
-    # shapes require preceding trend and are labelled early warnings.
-    is_doji = body <= .12*span
-    if is_doji and lower >= .65*span and upper <= .15*span and near_bottom and prior_down:
-        add("bottom", "蜻蜓十字星", 42, "跌勢末端的長下影十字星；仍需後續紅 K 確認", "提前預警")
-    if is_doji and upper >= .65*span and lower <= .15*span and near_top and prior_up:
-        add("top", "墓碑十字星", 42, "漲勢末端的長上影十字星；仍需後續黑 K 確認", "提前預警")
-    # A standard bullish doji must have BOTH visible upper and lower shadows.
-    # Reject one-sided dragonfly/grave-stone candles and limit-up gap bars:
-    # 3661 on 2026-11-10 O=H=C=3420, L=3360 is a dragonfly-like
-    # long-lower-wick candle, not the symmetric doji the user requested.
-    regular_doji = (
-        body <= .06*span
-        and upper >= .20*span
-        and lower >= .20*span
-        and min(upper, lower) >= .35*max(upper, lower)
-        and abs(cl/c[-2] - 1) <= .05
-    )
-    if regular_doji and near_bottom and prior_down:
+    # Shape-first doji: evaluate the actual cross structure with both
+    # upper and lower shadows. The trend/near-low context stays unchanged.
+    is_doji = _is_regular_doji(op, hi, lo, cl)
+    dragonfly = _is_hammer_shape(op, hi, lo, cl) and body < span*.12
+    gravestone = _is_hammer_shape(op, hi, lo, cl, inverted=True) and body < span*.12
+    if dragonfly and near_bottom and prior_down:
+        add("bottom", "蜻蜓十字星", 42,
+            "低檔出現單側長下影十字型，與上下影線均有的多頭十字星分開判斷",
+            "提前預警")
+    if gravestone and near_top and prior_up:
+        add("top", "墓碑十字星", 42,
+            "高檔出現單側長上影十字型，與一般十字星分開判斷",
+            "提前預警")
+    if is_doji and near_bottom and prior_down:
         add("bottom", "多頭十字星", 35,
-            "跌勢低檔出現上下影線均清晰的小實體十字星；僅為止跌觀察，非已確認起漲",
+            "低檔小實體且上下影線清楚的十字形 K 棒；屬提前觀察",
             "提前觀察", category="多頭十字星")
-    if is_doji and lower >= .20*span and upper >= .20*span:
-        if near_top and prior_up:
-            add("top", "空頭十字星", 31, "上漲後出現多空猶豫十字星；尚未確認見頂", "提前預警")
-    if upper >= 2*max(body, span*.08) and upper >= span*.52 and lower <= span*.23 and near_bottom and prior_down:
-        add("bottom", "倒錘子線", 34, "下跌後出現長上影小實體，待後續 K 棒確認", "提前預警")
-    if lower >= 2*max(body, span*.08) and lower >= span*.52 and upper <= span*.23 and near_top and prior_up:
-        add("top", "上吊線", 34, "上漲後出現長下影小實體，待後續 K 棒確認", "提前預警")
+    if is_doji and near_top and prior_up:
+        add("top", "空頭十字星", 31,
+            "高檔小實體且上下影線清楚的十字形 K 棒；屬提前觀察",
+            "提前預警")
+    if _is_hammer_shape(op, hi, lo, cl, inverted=True) and near_bottom and prior_down:
+        add("bottom", "倒錘子線", 34,
+            "下跌後出現小實體與長上影，仍待下一根確認", "提前預警")
+    if _is_hammer_shape(op, hi, lo, cl) and near_top and prior_up:
+        add("top", "上吊線", 34,
+            "上漲後小實體與長下影，仍待下一根確認", "提前預警")
     # Engulfing (body engulfment; previous candle opposite and real body material).
     if c[-2] < o[-2] and cl > op and op <= c[-2]*1.002 and cl >= o[-2]*.998 and near_bottom:
         add("bottom", "多頭吞噬", 43, "紅 K 實體涵蓋前一根黑 K 實體")
@@ -418,21 +465,15 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
         add("bottom", "低檔垂頭線", 38,
             "低檔短實體、長下影；僅為反轉候選，還沒有隔日突破確認",
             "提前觀察", category="低檔垂頭線")
-    if "高檔上吊線" in allowed and up_context and (
-            lower >= 2*max(body,span*.08) and lower >= span*.52
-            and upper <= span*.23):
+    if "高檔上吊線" in allowed and up_context and _is_hammer_shape(op,hi,lo,cl):
         add("top", "高檔上吊線", 37,
             "上漲後長下影與短實體，仍待後續轉弱確認",
             "提前觀察", category="高檔上吊線")
-    if "低檔倒垂頭線" in allowed and down_context and (
-            upper >= 2*max(body,span*.08) and upper >= span*.52
-            and lower <= span*.23):
+    if "低檔倒垂頭線" in allowed and down_context and _is_hammer_shape(op,hi,lo,cl, inverted=True):
         add("bottom", "低檔倒垂頭線", 36,
             "跌勢末端長上影小實體，尚未確認上漲",
             "提前觀察", category="低檔倒垂頭線")
-    if "高檔流星線" in allowed and up_context and (
-            upper >= 2*max(body,span*.08) and upper >= span*.52
-            and lower <= span*.23):
+    if "高檔流星線" in allowed and up_context and _is_hammer_shape(op,hi,lo,cl, inverted=True):
         add("top", "高檔流星線", 37,
             "漲勢末端長上影小實體，仍待轉弱確認",
             "提前觀察", category="高檔流星線")
