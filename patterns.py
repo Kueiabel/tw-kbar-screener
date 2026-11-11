@@ -155,13 +155,16 @@ def _hammer_at(o, h, l, c, idx: int) -> bool:
     if not _is_hammer_shape(op, hi, lo, cl):
         return False
     prior_down = c[end-1] < c[end-8] * .988
-    prior_up = c[end-1] > c[end-8] * 1.012
     low20 = float(np.min(l[end-20:end]))
     low30 = float(np.min(l[end-30:end]))
     high30 = float(np.max(h[end-30:end]))
-    pos = (cl-low30) / max(1e-8, high30-low30)
-    return bool(prior_down or ((lo <= low20*1.035 or pos <= .33)
-                               and not prior_up))
+    # IMPORTANT: A decline alone does not establish that the hammer formed
+    # AT a bottom. Require the hammer's LOW near the lower edge of the
+    # completed previous trading range, without inspecting future candles.
+    low_position = (lo-low30) / max(1e-8, high30-low30)
+    near_actual_low = lo <= low20*1.025 or low_position <= .20
+    preceding_retreat = prior_down or c[end-1] < np.max(c[end-10:end])* .965
+    return bool(near_actual_low and preceding_retreat)
 
 
 def _multi_test_reversal(h, l, c):
@@ -274,7 +277,12 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
     prior_up = c[-2] > c[-9] * 1.012
     # Do not call a tall upper shadow a top in the middle of an obvious fall,
     # or a long lower shadow a bottom amid an established rise.
-    near_bottom = prior_down or ((lo <= r20_low*1.035 or pos <= .33) and not prior_up)
+    # Distinguish "price has fallen" from "this pattern is AT the low".
+    # Use the signal bar's low (not its close) to find the bottom zone.
+    low_position = (lo-r30_low) / max(1e-8, r30_high-r30_low)
+    true_bottom_zone = lo <= r20_low*1.025 or low_position <= .20
+    near_bottom = true_bottom_zone and (prior_down or
+                   c[-2] < float(np.max(c[-11:-1]))*.965)
     near_top = prior_up or ((hi >= r20_high*.965 or pos >= .67) and not prior_down)
     res = []
     allowed = set(enabled_categories)
@@ -297,6 +305,31 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
                 f"{hammer_high:.2f} 元 0.3% 以上{volume_note}；"
                 "供下一交易日觀察，尚未代表後續一定上漲",
                 "隔日突破已確認", category="錘頭隔日突破")
+    # Early low-day rebound, including open==low candles with NO lower wick.
+    # 2383 on 2026-11-06: O=L=3690, H=3920, C=3820, prior close=4100.
+    # This is NOT a classic doji/hammer. Label distinctly and date the
+    # signal on the actual low-day candle (no next-day confirmation needed).
+    if "低檔開低收回" in allowed and len(c) >= 35:
+        prior_close = float(c[-2])
+        day_span = float(hi-lo)
+        day_close_location = (float(cl)-float(lo)) / max(day_span, 1e-8)
+        gap_down = op < prior_close*.985
+        breakdown_open = op <= float(l[-2])*.997
+        intraday_rebound = (
+            day_span > 0 and cl > op
+            and day_close_location >= .53
+            and cl >= lo + day_span*.53
+        )
+        fresh_test = lo <= float(np.min(l[-21:-1]))*1.007
+        decline_into_test = (prior_down or
+                             c[-2] <= float(np.max(c[-11:-1]))*.94)
+        if (true_bottom_zone and fresh_test and decline_into_test
+                and intraday_rebound and (gap_down or breakdown_open)):
+            add("bottom", "低檔開低收回", 67,
+                f"跳空／破低開盤後，盤中探至 {lo:.2f}，"
+                f"收盤回升至 {cl:.2f}；位於近 20 期低點區。"
+                "這是低檔反彈候選，不是十字星或槌頭，也不代表必然續漲",
+                "訊號當根／提前觀察", category="低檔開低收回")
     # User-marked chart examples (2834 / 1802 / 6269 / 3019):
     # select the rejection candle ITSELF rather than a later breakout.
     # A single candle with meaningful rejection from a recent low or moving-
