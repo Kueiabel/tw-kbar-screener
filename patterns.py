@@ -973,11 +973,14 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
                     / max(float(grp.shares.iloc[low_day_i-5:low_day_i].mean()), 1.)
                     if low_day_i >= 5 else 0.0
                 )
+                # Do not read a future bar if a hammer/long-lower-wick
+                # appears on today's latest completed candle.
                 combined_volume_ratio = (
                     (float(grp.shares.iloc[low_day_i])
                      + float(grp.shares.iloc[low_day_i+1])) / 2
                     / max(float(grp.shares.iloc[low_day_i-5:low_day_i].mean()), 1.)
-                    if low_day_i >= 5 else 0.0
+                    if low_day_i >= 5 and low_day_i + 1 < len(grp)
+                    else 0.0
                 )
                 signal = Signal(
                     side=side, category=category, code=code, name=companies.get(code, grp['name'].iloc[-1]),
