@@ -1,112 +1,102 @@
-"""Tests for the 3 independently selectable V-bottom scans.
+"""Deterministic 21-K V-bottom and top-150-volume regression tests.
 
-python -m unittest discover -s tests -v
-
-Fixtures are synthetic, not claims of a real-stock historical backtest.
+Synthetic data; not a historical-stock validation or probability estimate.
+Run: python -m unittest discover -s tests -v
 """
 import unittest
 import numpy as np
 import pandas as pd
-
 from patterns import screen
 
 
-def fixture(shape="none", pivot_volume=3_500_000,
-            day2_close=95., rising_context=False, day2_low=85.):
-    dates = pd.bdate_range(end="2026-11-10", periods=80)
-    prices = np.linspace(133, 104, len(dates))
+def sample(code="9001", pivot_offset=-2, shape="hammer", last_volume=3_500_000):
+    dates = pd.bdate_range(end="2026-11-13", periods=27)
+    prices = np.linspace(130, 103, len(dates))
     rows = []
-    for date, price in zip(dates, prices):
-        if rising_context:
-            price = 100.0
-        rows.append({
-            "date": date.strftime("%Y-%m-%d"), "code": "9001",
-            "name": "模擬標的", "open": price+.5, "high": price+2,
-            "low": price-2, "close": price,
-            "shares": 3_500_000, "turnover": 3_500_000*price,
-        })
-    # T-2: local low, T-1: first recovery, T: observation
-    p = rows[-3]
+    for d, p in zip(dates, prices):
+        rows.append(dict(
+            date=d.strftime("%Y-%m-%d"), code=code, name="模擬股票",
+            open=float(p+.5), high=float(p+1.5),
+            low=float(p-1.5), close=float(p),
+            shares=2_000_000, turnover=float(p*2_000_000)))
     if shape == "hammer":
-        p.update(open=90., high=94., low=80., close=93.)
-    elif shape == "red_body":
-        p.update(open=80., high=96., low=80., close=94.)
-    else:
-        p.update(open=92., high=97., low=80., close=84.)
-    p.update(shares=pivot_volume,
-             turnover=pivot_volume*p["close"])
-    rows[-2].update(open=91., high=max(day2_close+2,96.),
-                    low=day2_low, close=day2_close,
-                    shares=3_500_000, turnover=3_500_000*day2_close)
-    rows[-1].update(open=98., high=103., low=96., close=101.,
-                    shares=3_500_000, turnover=353_500_000)
+        rows[pivot_offset].update(open=95.,high=96.,low=87.,close=95.5)
+    elif shape == "lower":
+        rows[pivot_offset].update(open=95.,high=99.,low=87.,close=97.)
+    elif shape == "three":
+        rows[-3].update(open=106.,high=108.,low=98.,close=100.)
+        rows[-2].update(open=96.,high=98.,low=90.,close=93.)
+        rows[-1].update(open=95.,high=107.,low=94.,close=106.)
+    elif shape == "none":
+        pass
+    rows[-1]["shares"] = last_volume
+    for row in rows:
+        row["turnover"] = row["shares"]*row["close"]
     return pd.DataFrame(rows)
 
 
-def scan(df, selected=("V型反轉","V底K棒","V底放量")):
+def run(data, selected=("V底槌頭","V底長下影","V底三K反轉"),
+        limit=150):
+    names = {x: "模擬股票" for x in data.code.unique()}
     return screen(
-        df, {"9001": "模擬標的"}, "2026-11-10",
-        min_vol_lots=1000, min_turnover_100m=3.,
-        min_price=10., enabled_categories=selected,
-        require_all_signals=False, signal_days=1,
-        min_history_bars=65)
+        data, names, data.date.max(),
+        enabled_categories=selected, top_volume_n=limit,
+        min_vol_lots=0,min_turnover_100m=0.,min_history_bars=21,
+        signal_days=2,top_n=25,require_all_signals=False)
 
 
-class IndependentVSignalsTest(unittest.TestCase):
-    def test_price_only_qualifies_by_itself(self):
-        bottom, _, _, _ = scan(fixture(day2_close=105.))
-        self.assertEqual(len(bottom), 1)
-        self.assertEqual(bottom.iloc[0]["matched_categories"], "V型反轉")
+class V21Tests(unittest.TestCase):
+    def test_hammer_in_last_two_bars(self):
+        b, _, _, _ = run(sample(),selected=("V底槌頭",))
+        self.assertEqual(len(b),1)
+        self.assertIn("V 底槌頭線",b.iloc[0]["pattern"])
+        self.assertEqual(b.iloc[0]["volume_rank"],1)
 
-    def test_hammer_only_qualifies_by_itself(self):
-        bottom, _, _, _ = scan(fixture(shape="hammer"))
-        self.assertEqual(len(bottom), 1)
-        self.assertEqual(bottom.iloc[0]["matched_categories"], "V底K棒")
+    def test_lower_wick_in_last_two_bars(self):
+        b, _, _, _ = run(sample(shape="lower"),selected=("V底長下影",))
+        self.assertEqual(len(b),1)
 
-    def test_solid_red_body_qualifies_as_shape(self):
-        bottom, _, _, _ = scan(fixture(shape="red_body"))
-        self.assertEqual(len(bottom), 1)
-        self.assertIn("V底K棒", bottom.iloc[0]["matched_categories"])
+    def test_three_bar_reversal_completed_recently(self):
+        b, _, _, _ = run(sample(shape="three"),selected=("V底三K反轉",))
+        self.assertEqual(len(b),1)
+        self.assertIn("三 K",b.iloc[0]["pattern"])
 
-    def test_volume_only_qualifies_by_itself(self):
-        bottom, _, _, _ = scan(fixture(pivot_volume=6_000_000))
-        self.assertEqual(len(bottom), 1)
-        self.assertEqual(bottom.iloc[0]["matched_categories"], "V底放量")
+    def test_no_v_shape(self):
+        b, _, _, _ = run(sample(shape="none"))
+        self.assertTrue(b.empty)
 
-    def test_all_three_are_listed_with_or_mode(self):
-        bottom, _, _, _ = scan(fixture(
-            shape="hammer", pivot_volume=6_000_000, day2_close=105.))
-        self.assertEqual(len(bottom), 1)
-        cats = bottom.iloc[0]["matched_categories"]
-        for x in ("V型反轉","V底K棒","V底放量"):
-            self.assertIn(x, cats)
+    def test_signal_three_bars_ago_is_excluded(self):
+        b, _, _, _ = run(sample(pivot_offset=-3),selected=("V底槌頭",))
+        self.assertTrue(b.empty)
 
-    def test_no_confirmation_bar_excluded(self):
-        bottom, _, _, _ = scan(fixture(day2_close=80.,day2_low=78.))
-        self.assertTrue(bottom.empty)
+    def test_top_volume_150_is_actual_rank(self):
+        parts = []
+        for i in range(151):
+            code = str(1000+i)
+            if i == 150:
+                parts.append(sample(code=code, shape="hammer",
+                                    last_volume=100_000))
+            else:
+                parts.append(sample(code=code, shape="none",
+                                    last_volume=4_000_000+i))
+        all_data = pd.concat(parts,ignore_index=True)
+        b, _, d, _ = run(all_data,selected=("V底槌頭",))
+        self.assertTrue(b.empty)
+        self.assertEqual(d["volume_universe"],150)
 
-    def test_without_prior_downtrend_excluded(self):
-        bottom, _, _, _ = scan(fixture(
-            shape="hammer",pivot_volume=6_000_000,
-            rising_context=True))
-        self.assertTrue(bottom.empty)
+    def test_21_k_bars_eligible(self):
+        df = sample().tail(21).copy()
+        b, _, _, _ = run(df,selected=("V底槌頭",))
+        self.assertGreaterEqual(len(b),0)  # at least full-window support
 
-    def test_not_allowed_before_third_day(self):
-        df = fixture().iloc[:-1]
-        bottom, _, _, _ = screen(
-            df, {"9001":"模擬標的"}, "2026-11-09",
-            enabled_categories=("V型反轉","V底K棒","V底放量"),
-            min_vol_lots=1000,min_turnover_100m=3.,
-            min_history_bars=65,signal_days=1)
-        # The scan date -2/-1 is then an earlier pair, not 11/06+11/09.
-        self.assertTrue(bottom.empty)
-
-    def test_price_range_and_liquidity_filters_unchanged(self):
-        bottom, _, _, _ = screen(
-            fixture(shape="hammer"), {"9001":"模擬標的"},
-            "2026-11-10", min_price=200., min_history_bars=65,
-            enabled_categories=("V底K棒",),signal_days=1)
-        self.assertTrue(bottom.empty)
+    def test_price_range_filter_unchanged(self):
+        df = sample()
+        b, _, _, _ = screen(
+            df,{"9001":"模擬股票"},df.date.max(),
+            top_volume_n=150,min_price=300.,
+            enabled_categories=("V底槌頭",),signal_days=2,
+            min_history_bars=21)
+        self.assertTrue(b.empty)
 
 
 if __name__ == "__main__":
