@@ -305,7 +305,7 @@ def render_waiting_ad():
 
 
 EXPORT_FIELDS = {
-    'rank':'排名','code':'代號','name':'公司','industry':'產業類別','category':'搜尋類別','pattern':'型態','stage':'階段',
+    'rank':'排名','volume_rank':'成交量名次','code':'代號','name':'公司','industry':'產業類別','category':'搜尋類別','pattern':'型態','stage':'階段',
     'score':'評分','signal_date':'訊號日期','pivot_date':'止跌日期',
     'pivot_volume_ratio':'止跌日量／前5期均量',
     'two_day_volume_ratio':'兩日均量／前5期均量','age':'距今交易日',
@@ -390,7 +390,7 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame,
         st.info('這個日期與條件下，沒有符合定義的型態。可以延長訊號觀察天數或稍微放寬流動性門檻；不會以不符合的股票湊滿 25 名。')
         return
     shown = frame.rename(columns={
-        'rank':'排名','code':'代號','name':'股票名稱','industry':'產業類別','category':'搜尋類別','pattern':'型態','stage':'階段',
+        'rank':'排名','volume_rank':'成交量名次','code':'代號','name':'股票名稱','industry':'產業類別','category':'搜尋類別','pattern':'型態','stage':'階段',
         'matched_patterns':'符合型態','matched_categories':'符合搜尋項目',
         'matched_count':'符合型態數',
         'score':'分數','signal_date':'訊號日期','pivot_date':'止跌日期',
@@ -622,8 +622,8 @@ if 'results' in st.session_state:
     v_only = set(r['criteria'].get('targets', [])).issubset(
         {'V型反轉', 'V底K棒', 'V底放量'})
     stats = [
-        ('可分析股票', r['diag']['covered'], '檔'),
-        ('符合流動性', r['diag']['liquid'], '檔'),
+        ('台灣上市可分析', r['diag']['covered'], '檔'),
+        ('成交量前 150 大', r['diag'].get('volume_universe') or 0, '檔'),
         ('V 型底部候選' if v_only else '底部候選',
          len(r['bottom']), '/ 25 檔'),
     ]
