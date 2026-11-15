@@ -263,6 +263,8 @@ def _rising_channel_breakout(o, h, l, c):
 # The active scanner uses exactly the most recent 21 completed bars for
 # BOTH daily and weekly signals. Three shapes are independent OR candidates.
 V21_CATEGORIES = {"V底槌頭", "V底長下影", "V底三K反轉"}
+SAKATA_BUY_CATEGORIES = {"酒田三川晨星", "酒田紅三兵", "酒田上升三法"}
+ACTIVE21_CATEGORIES = V21_CATEGORIES | SAKATA_BUY_CATEGORIES
 
 
 def _v21_patterns_at(df: pd.DataFrame, enabled_categories):
@@ -271,7 +273,7 @@ def _v21_patterns_at(df: pd.DataFrame, enabled_categories):
     Call at each completed search bar. A hit is attached to that bar's
     date (for a 3-K reversal, the confirming third bar's date).
     """
-    allowed = V21_CATEGORIES.intersection(enabled_categories)
+    allowed = ACTIVE21_CATEGORIES.intersection(enabled_categories)
     if not allowed or len(df) < 21:
         return []
     w = df.tail(21)
@@ -343,12 +345,76 @@ def _v21_patterns_at(df: pd.DataFrame, enabled_categories):
                     f"兩根均量／前五根均量 {v_ratio:.2f} 倍。")
             results.append(("bottom","V 底三 K 反轉",66,note,
                             "三 K 確認","V底三K反轉"))
+    # Sakata BUY signals only. Use the last 21 completed K bars.
+    def near_bottom(index):
+        lo14 = float(np.min(lo[max(0,index-14):index]))
+        hi14 = float(np.max(hi[max(0,index-14):index]))
+        return (lo[index] <= lo14*1.045 or
+                (lo[index]-lo14)/max(hi14-lo14,1e-8) <= .24)
+
+    if "酒田三川晨星" in allowed:
+        a,b,d = 18,19,20
+        body_a = abs(cl[a]-op[a])
+        body_b = abs(cl[b]-op[b])
+        span_a = max(hi[a]-lo[a],1e-8)
+        span_b = max(hi[b]-lo[b],1e-8)
+        span_d = max(hi[d]-lo[d],1e-8)
+        prior_drop = cl[a] < cl[a-5]*.97
+        star = (cl[a] < op[a] and body_a/span_a >= .50
+                and body_b <= body_a*.40 and body_b/span_b <= .40
+                and lo[b] <= lo[a]*1.015)
+        reclaim = (cl[d] > op[d] and (cl[d]-op[d])/span_d >= .45
+                   and cl[d] > (op[a]+cl[a])/2 and cl[d] > cl[b])
+        if prior_drop and near_bottom(b) and star and reclaim:
+            results.append((
+                "bottom", "酒田・三川晨星", 71,
+                f"{w.date.iloc[a]} 長黑、{w.date.iloc[b]} 低檔小實體、"
+                f"{w.date.iloc[d]} 紅 K 收復前段黑 K 中點；"
+                "台股適用版本不強制要求跳空。",
+                "三 K 收盤確認", "酒田三川晨星"))
+
+    if "酒田紅三兵" in allowed:
+        aa,bb,cc = 18,19,20
+        soldier = all(cl[z] > op[z] for z in (aa,bb,cc))
+        stepping = cl[aa] < cl[bb] < cl[cc]
+        bodies = [cl[z]-op[z] for z in (aa,bb,cc)]
+        balanced = (min(bodies) > 0 and
+                    max(bodies) <= min(bodies)*3.5 and
+                    cl[cc] < float(np.max(hi[5:aa]))*1.08)
+        if soldier and stepping and near_bottom(aa) and balanced:
+            results.append((
+                "bottom", "酒田・赤三兵", 65,
+                f"{w.date.iloc[aa]}～{w.date.iloc[cc]} 連續三根紅 K、"
+                "收盤逐步墊高，起點位於近期低檔。",
+                "三紅兵確認", "酒田紅三兵"))
+
+    if "酒田上升三法" in allowed:
+        first,last = 16,20
+        body_start = cl[first]-op[first]
+        body_end = cl[last]-op[last]
+        start_range = max(hi[first]-lo[first],1e-8)
+        end_range = max(hi[last]-lo[last],1e-8)
+        pause = all(lo[k] >= lo[first]*.995 and
+                    hi[k] <= hi[first]*1.005 and
+                    abs(cl[k]-op[k]) < body_start*.65
+                    for k in (17,18,19))
+        controlled = (cl[19] >= lo[first] and cl[19] <= hi[first])
+        strong_bars = (body_start/start_range >= .55
+                       and body_end/end_range >= .55)
+        if (body_start > 0 and body_end > 0 and strong_bars and
+                pause and controlled and cl[last] > hi[first]):
+            results.append((
+                "bottom", "酒田・上升三法", 60,
+                f"{w.date.iloc[first]} 長紅、三根小 K 整理、"
+                f"{w.date.iloc[last]} 紅 K 突破；"
+                "多頭延續型態，非低檔 V 底。",
+                "收盤突破確認", "酒田上升三法"))
     return results
 
 
 def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windows=(20,52)):
     """Pattern tuples (side,name,base_score,reason,stage) for the FINAL bar."""
-    if len(df) >= 21 and V21_CATEGORIES.intersection(enabled_categories):
+    if len(df) >= 21 and ACTIVE21_CATEGORIES.intersection(enabled_categories):
         return _v21_patterns_at(df, enabled_categories)
     if len(df) < 32:
         return []
@@ -909,10 +975,10 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
         # V setups are evaluated on T-2 and T-1, with the selected
         # search-date bar T used only to display the results.
         v_targets = {"V型反轉", "V底K棒", "V底放量"}
-        max_age_count = max(signal_days, 2 if V21_CATEGORIES.intersection(enabled_categories) else 1)
+        max_age_count = max(signal_days, 1)
         # For a two-bar signal lookback, at least 22 total bars are
         # required to supply a complete 21-bar pattern window at age=1.
-        history_lookback = (21 if V21_CATEGORIES.intersection(enabled_categories)
+        history_lookback = (21 if ACTIVE21_CATEGORIES.intersection(enabled_categories)
                             else min_history_bars)
         for age in range(min(max_age_count, len(grp)-history_lookback+1)):
             i = len(grp) - 1 - age
@@ -922,8 +988,8 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
                 # Main strategy uses candle scan-day -2 and confirms at
                 # scan-day -1; all other pattern categories retain their
                 # user-selected lookback number of completed bars.
-                if category in V21_CATEGORIES:
-                    if age > 1:
+                if category in ACTIVE21_CATEGORIES:
+                    if age >= signal_days:
                         continue
                 elif category in v_targets:
                     if age != 0:
@@ -945,6 +1011,18 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
                         current_week_low = float(grp.low.iloc[first_recent:].min())
                         if float(grp.low.iloc[pivot_i]) > current_week_low + 1e-8:
                             continue
+                # Week-low filter for Sakata reversals only; a rising three
+                # methods pattern is trend continuation, not a fresh low.
+                if require_week_low and category in SAKATA_BUY_CATEGORIES:
+                    if category == "酒田上升三法":
+                        continue
+                    if signal_days == 5:
+                        pivot_i = i-1 if category == "酒田三川晨星" else i-2
+                        first_recent = len(grp)-5
+                        if pivot_i < first_recent:
+                            continue
+                        if float(grp.low.iloc[pivot_i]) > float(grp.low.iloc[first_recent:].min()) + 1e-8:
+                            continue
                 # Other breakout signals keep their prior timing.
                 if name in ("錘頭隔日突破・第三日觀察",
                             "低點止跌後突破") and age != 0:
@@ -965,7 +1043,9 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
                     score = min(100, score + 12)
                 prev_close = float(grp.close.iloc[-2]) if len(grp) > 1 else float(grp.close.iloc[-1])
                 pct = (grp.close.iloc[-1] / prev_close-1)*100 if prev_close else 0
-                low_day_i = (i-1 if category == "V底三K反轉" else i
+                low_day_i = (i-1 if category in ("V底三K反轉", "酒田三川晨星") else
+                             i-2 if category == "酒田紅三兵" else
+                             i-4 if category == "酒田上升三法" else i
                              if category in V21_CATEGORIES else
                              i-2 if category in v_targets else -1)
                 low_day_ratio = (
