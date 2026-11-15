@@ -338,7 +338,9 @@ def to_csv(frame: pd.DataFrame) -> bytes:
 
 def render_chart(bars: pd.DataFrame, item, side: str, timeframe: str = 'D'):
     code = str(item['code'])
-    series = bars[bars.code == code].sort_values('date').tail(100).copy()
+    # Compute rolling averages on available history, but DISPLAY exactly
+    # the 21 completed bars used for V-bottom recognition.
+    series = bars[bars.code == code].sort_values('date').copy()
     if series.empty:
         st.warning('無法取得此股票的歷史 K 線。')
         return
@@ -346,6 +348,7 @@ def render_chart(bars: pd.DataFrame, item, side: str, timeframe: str = 'D'):
     series['ma10'] = series['close'].rolling(10).mean()
     series['ma20'] = series['close'].rolling(20).mean()
     series['ma52'] = series['close'].rolling(52).mean()
+    series = series.tail(21).copy()
     x = series.date.astype(str).to_list()
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=.055,
                         row_heights=[.74,.26])
@@ -428,13 +431,18 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame,
         industry_value = item.get('industry', '未分類')
         industry = escape(str(industry_value)) if pd.notna(industry_value) else '未分類'
         score = int(item['score'])
+        volume_rank = item.get('volume_rank')
+        volume_badge = (
+            f' · 成交量第 {int(volume_rank)} 名'
+            if pd.notna(volume_rank) else ''
+        )
         price = float(item['close'])
         quick_rows.append(
             '<div class="qs-stock"><div class="qs-stock-top">'
             f'<span class="qs-stock-name"><span class="qs-stock-code">{code}</span>{name}</span>'
             f'<span class="qs-stock-score">{score} 分</span>'
             '</div><div class="qs-stock-bottom">'
-            f'<span class="qs-stock-industry">產業：{industry}</span> · 收盤 {price:,.2f} 元'
+            f'<span class="qs-stock-industry">產業：{industry}</span> · 收盤 {price:,.2f} 元{volume_badge}'
             f'<div>符合型態：{pattern}</div><div>{date_label} · {stage}</div>'
             '</div></div>'
         )
@@ -652,7 +660,7 @@ if 'results' in st.session_state:
 - **組合方式：** 三類訊號各自獨立，符合任一種即可。前 150 大以查詢日的成交股數排名，週 K 依最新完整週成交股數排名。最低／最高股價可自行設定。
 - **搜尋面板：** 取消舊的 20 日均量與每日成交金額下限，改用前 150 大成交量；保留股價區間。
 - **頂部訊號：** 此版專注 V 型底部候選，暫不顯示頂部候選空榜單。
-- **評分：** 型態基本分＋流動性＋訊號日量比＋均線位置／方向－訊號距今交易日的時間折減，最高 100 分。分數不能解讀為上漲或下跌的機率。
+- **評分：** 型態基本分加上量能、流動性、均線條件等，僅用於候選排序，不代表預測勝率。
 - **榜單：** 每檔最多入選一次，但會列出全部匹配的型態；分數以最高分訊號為準。只有符合條件才列入，可能不足 25 檔。
 
 **務必留意**
