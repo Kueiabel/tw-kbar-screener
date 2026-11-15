@@ -237,11 +237,11 @@ def run_stock_scan(opts):
             search_data = info["data"]
             search_date = info["effective_date"]
             liquidity = None
-            required_bars = 65
+            required_bars = 21
             if opts["timeframe"] == "W":
                 search_data, search_date = weekly_bars_from_daily(search_data, search_date)
                 liquidity = daily_liquidity_for_week(info["data"], search_date)
-                required_bars = 55
+                required_bars = 21
             bottom, top, diag, covered = screen(
                 search_data, companies, search_date,
                 min_vol_lots=opts["min_vol"],
@@ -254,7 +254,8 @@ def run_stock_scan(opts):
                 require_above_ma5=opts["require_above_ma5"],
                 require_all_signals=opts["require_all_signals"],
                 min_history_bars=required_bars,
-                daily_liquidity=liquidity)
+                daily_liquidity=liquidity,
+                top_volume_n=150)
             for ranking in (bottom, top):
                 if not ranking.empty:
                     ranking["industry"] = ranking["code"].map(
@@ -512,24 +513,19 @@ search_panel = (st.expander('🔎 調整條件・重新選股', expanded=False)
                 if 'results' in st.session_state else st.container(border=True))
 with search_panel:
     st.subheader('設定篩選條件')
-    st.caption('使用預設條件即可搜尋；需要時再調整。')
+    st.caption('成交量前 150 大 · 21 K 圖形辨識 · 最近 2 根 K 訊號')
     frame_choice = st.selectbox(
         'K 線搜尋週期', ['日 K', '週 K'], index=0,
         help='預設日 K；週 K 由證交所盤後日 K 合成，僅採用已完成交易週。')
     timeframe = 'W' if frame_choice == '週 K' else 'D'
     if timeframe == 'W':
         st.caption('週 K 使用完整交易週；流動性仍依近 20 個交易日計算。首次搜尋可能需要下載較長歷史資料。')
-    c_date, c_volume = st.columns(2)
-    with c_date:
-        query_date = st.date_input('查詢日期', value=last_weekday(),
-            min_value=today_taiwan()-timedelta(days=1400),
-            max_value=today_taiwan(), format='YYYY/MM/DD')
-    with c_volume:
-        min_vol = st.number_input('20 日均量下限（張）', min_value=0,
-            max_value=100000, value=1000, step=500)
-    min_money = st.number_input('20 日平均每日成交金額下限（億元）',
-        min_value=0.0, max_value=500.0, value=3.0, step=.5, format='%.1f',
-        help='預設 3 億元；可自行調整為 1 億、5 億等。此為股票成交金額，非公司營收。')
+    st.caption('股票範圍：台灣上市普通股，依查詢日成交量排序前 150 檔。日 K／週 K 都使用 21 根 K 棒判斷。')
+    query_date = st.date_input('查詢日期', value=last_weekday(),
+        min_value=today_taiwan()-timedelta(days=1400),
+        max_value=today_taiwan(), format='YYYY/MM/DD')
+    min_vol = 0
+    min_money = 0.0
     c_low, c_high = st.columns(2)
     with c_low:
         price_low_text = st.text_input('最低股價（元）', value='',
@@ -555,24 +551,24 @@ with search_panel:
     # Retire the old MA5 gating option: the three V setups themselves
     # are the ONLY technical selection switches in this streamlined edition.
     require_above_ma5 = False
-    st.markdown('**V 型底部：3 種獨立訊號**')
-    st.caption('前第三根 K 尋找底部、第二根觀察回升；三種符合任一項就列入，並顯示符合哪些訊號。')
-    select_v_price = st.checkbox('① V 型價格反轉', value=True,
-        help='下跌後出現近 12 根 K 的相對低點，第二根 K 收盤上升，逐步形成 V 型。')
-    select_v_candle = st.checkbox('② V 底 K 棒：槌頭／長下影／實體紅 K', value=True,
-        help='V 底可有槌頭、長下影或明顯紅色實體 K，並由第二根 K 收高確認。')
-    select_v_volume = st.checkbox('③ V 底放大量', value=True,
-        help='V 底當根成交量至少為前五根平均量的 1.25 倍，第二根 K 收高。這是總成交量，不代表法人買超。')
+    st.markdown('**21 K 底部反轉訊號**')
+    st.caption('最近兩根 K 內出現訊號；三種獨立判斷，符合其中一種就列入。')
+    pick_hammer = st.checkbox('槌頭線', value=True,
+        help='21 根 K 底部區，實體短、下影明顯長。')
+    pick_lower = st.checkbox('長下影線', value=True,
+        help='21 根 K 底部區，盤中探低後收回、下影明顯。')
+    pick_3k = st.checkbox('三 K 棒 V 底反轉', value=True,
+        help='三根 K 棒先探低，第三根紅 K 收復部分跌幅。完成日需在最近兩根 K 之內。')
     targets = []
-    if select_v_price:
-        targets.append('V型反轉')
-    if select_v_candle:
-        targets.append('V底K棒')
-    if select_v_volume:
-        targets.append('V底放量')
+    if pick_hammer:
+        targets.append('V底槌頭')
+    if pick_lower:
+        targets.append('V底長下影')
+    if pick_3k:
+        targets.append('V底三K反轉')
     require_all_signals = False
-    signal_days = 1
-    ma_windows = [5, 10, 20, 52]
+    signal_days = 2
+    ma_windows = [5,10,20,52]
     history_days = 165
     valid_targets = bool(targets) and price_error is None
     if not targets:
@@ -652,9 +648,9 @@ if 'results' in st.session_state:
         st.markdown('''
 **判斷型態**
 
-- **底部預設：** 3 種 V 型訊號「V 型價格反轉」「V 底 K 棒（槌頭／長下影／實體紅 K）」「V 底放大量」，**符合任一個就列入**，不要求三者同時成立。K 線分別以查詢日往前第 2、1 根判斷；當日作為第三日觀察，榜單標示底部日期、首次收高日期及符合型態。
-- **組合方式：** 只使用「任一符合」模式；不再要求三種 V 型訊號同時成立。成交量、成交金額、股價區間與可選 MA5 仍是基本股票過濾條件。
-- **搜尋面板：** 已移除舊版各種型態、必須全符合與舊版嚴格的 20 K 新低限制；其他基本流動性和價格欄位保留可調。
+- **底部預設：** 日 K 與週 K 均用最近 **21 根 K 棒**，先以查詢日上市普通股**成交量前 150 大**建立篩選名單，再尋找最近兩根 K 內形成的 V 底槌頭、長下影或三 K 棒反轉；三者任一符合即可列入。
+- **組合方式：** 三類訊號各自獨立，符合任一種即可。前 150 大以查詢日的成交股數排名，週 K 依最新完整週成交股數排名。最低／最高股價可自行設定。
+- **搜尋面板：** 取消舊的 20 日均量與每日成交金額下限，改用前 150 大成交量；保留股價區間。
 - **頂部訊號：** 此版專注 V 型底部候選，暫不顯示頂部候選空榜單。
 - **評分：** 型態基本分＋流動性＋訊號日量比＋均線位置／方向－訊號距今交易日的時間折減，最高 100 分。分數不能解讀為上漲或下跌的機率。
 - **榜單：** 每檔最多入選一次，但會列出全部匹配的型態；分數以最高分訊號為準。只有符合條件才列入，可能不足 25 檔。
