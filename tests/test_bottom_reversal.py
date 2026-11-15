@@ -16,8 +16,8 @@ def sample(code="9001", pivot_offset=-2, shape="hammer", last_volume=3_500_000):
     for d, p in zip(dates, prices):
         rows.append(dict(
             date=d.strftime("%Y-%m-%d"), code=code, name="模擬股票",
-            open=float(p+.5), high=float(p+1.5),
-            low=float(p-1.5), close=float(p),
+            open=float(p+.5), high=float(p+2.0),
+            low=float(p-1.0), close=float(p),
             shares=2_000_000, turnover=float(p*2_000_000)))
     if shape == "hammer":
         rows[pivot_offset].update(open=95.,high=96.,low=87.,close=95.5)
@@ -87,7 +87,7 @@ class V21Tests(unittest.TestCase):
     def test_21_k_bars_eligible(self):
         df = sample().tail(21).copy()
         b, _, _, _ = run(df,selected=("V底槌頭",))
-        self.assertGreaterEqual(len(b),0)  # at least full-window support
+        self.assertEqual(len(b),1)  # 21 bars are enough for today's signal
 
     def test_price_range_filter_unchanged(self):
         df = sample()
