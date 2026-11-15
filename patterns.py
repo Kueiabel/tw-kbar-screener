@@ -260,8 +260,96 @@ def _rising_channel_breakout(o, h, l, c):
     return None
 
 
+# The active scanner uses exactly the most recent 21 completed bars for
+# BOTH daily and weekly signals. Three shapes are independent OR candidates.
+V21_CATEGORIES = {"V底槌頭", "V底長下影", "V底三K反轉"}
+
+
+def _v21_patterns_at(df: pd.DataFrame, enabled_categories):
+    """V-bottom candidates in a 21-bar window, no forward bars.
+
+    Call at each completed search bar. A hit is attached to that bar's
+    date (for a 3-K reversal, the confirming third bar's date).
+    """
+    allowed = V21_CATEGORIES.intersection(enabled_categories)
+    if not allowed or len(df) < 21:
+        return []
+    w = df.tail(21)
+    op = w.open.to_numpy(dtype=float)
+    hi = w.high.to_numpy(dtype=float)
+    lo = w.low.to_numpy(dtype=float)
+    cl = w.close.to_numpy(dtype=float)
+    vol = w.shares.to_numpy(dtype=float)
+    idx = 20
+    # Require prior downward movement + a candidate low near the bottom
+    # of the 21-bar price envelope. No rigid "absolute new low" requirement.
+    recent_high = float(np.max(hi[:idx]))
+    recent_low = float(np.min(lo[:idx]))
+    previous_close = float(cl[idx-1])
+    falling = (previous_close < float(cl[max(0,idx-7)])*.985
+               or previous_close < float(np.max(cl[max(0,idx-10):idx]))*.96)
+    low_zone = (
+        lo[idx] <= recent_low*1.035
+        or (lo[idx]-recent_low)/max(1e-9,recent_high-recent_low) <= .24
+    )
+    results = []
+    if not (falling and low_zone):
+        # A 3-K pattern may complete one bar AFTER its middle low;
+        # test that middle bar separately below.
+        pass
+    else:
+        geometry = _candle_geometry(op[idx],hi[idx],lo[idx],cl[idx])
+        body = abs(cl[idx]-op[idx])
+        lower = min(op[idx],cl[idx])-lo[idx]
+        upper = hi[idx]-max(op[idx],cl[idx])
+        hammer = _is_hammer_shape(op[idx],hi[idx],lo[idx],cl[idx])
+        long_wick = bool(
+            geometry is not None and geometry[2] >= .30
+            and lower >= max(body*.9,upper*1.15)
+        )
+        ratio = float(vol[idx]/max(np.mean(vol[idx-5:idx]),1.))
+        note = (f"21 根 K 低檔，{w.date.iloc[-1]} 出現"
+                f"反彈候選；當根量比前 5 根均量 {ratio:.2f} 倍。")
+        if hammer and "V底槌頭" in allowed:
+            results.append(("bottom","V 底槌頭線",64,note+"槌頭小實體、長下影。",
+                            "當根觀察","V底槌頭"))
+        if long_wick and "V底長下影" in allowed:
+            results.append(("bottom","V 底長下影線",60,note+"下影線明顯。",
+                            "當根觀察","V底長下影"))
+
+    # 3-K reversal: first bar selling pressure, second bar tests recent
+    # bottom, third bar recovers with a bullish real body. The signal
+    # DATE is the third completed bar; no next-day movement is assumed.
+    if "V底三K反轉" in allowed:
+        first, middle, third = idx-2, idx-1, idx
+        price_range = max(float(np.max(hi[:third])-np.min(lo[:third])),1e-9)
+        local_bottom = (lo[middle] <= float(np.min(lo[:middle]))*1.035 or
+                        (lo[middle]-np.min(lo[:middle]))/price_range <= .24)
+        pre_fall = (
+            cl[first] < op[first]
+            or cl[middle] < float(cl[first-3])*.99
+        )
+        turning = (
+            cl[third] > op[third]
+            and cl[third] > cl[middle]
+            and cl[third] > (op[first]+cl[first])/2
+            and lo[third] >= lo[middle]*.985
+        )
+        if pre_fall and local_bottom and turning:
+            v_ratio = float(np.mean(vol[middle:third+1]) /
+                            max(np.mean(vol[middle-5:middle]),1.))
+            note = (f"21 根 K 低檔，{w.date.iloc[middle]} 測試底部，"
+                    f"{w.date.iloc[third]} 紅 K 收復前段跌幅；"
+                    f"兩根均量／前五根均量 {v_ratio:.2f} 倍。")
+            results.append(("bottom","V 底三 K 反轉",66,note,
+                            "三 K 確認","V底三K反轉"))
+    return results
+
+
 def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windows=(20,52)):
     """Pattern tuples (side,name,base_score,reason,stage) for the FINAL bar."""
+    if len(df) >= 21 and V21_CATEGORIES.intersection(enabled_categories):
+        return _v21_patterns_at(df, enabled_categories)
     if len(df) < 32:
         return []
     a = df[['open','high','low','close','shares','turnover']].to_numpy(dtype=float)
