@@ -605,6 +605,23 @@ render_affiliate_promotion(compact=True)
 if "scan_error" in st.session_state:
     st.error("搜尋中斷：" + st.session_state.pop("scan_error"))
 
+# User-initiated historical acceptance. Never auto-fetch hundreds of market
+# days for normal visitors; heavy I/O stays inside the existing worker pool.
+with st.expander("🧪 歷史驗收｜11/10（二）訊號 → 11/13（五）", expanded=False):
+    st.caption("固定週二成交量前 150 大，核對 V 底及酒田買入訊號。"
+               " 分別統計每天收漲、三日內曾漲及週五收高。")
+    if st.button("執行官方歷史行情驗收", use_container_width=True,
+                 disabled="acceptance_future" in st.session_state):
+        st.session_state["acceptance_future"] = _search_pool()["executor"].submit(
+            run_20261110_acceptance)
+        st.rerun()
+    if "acceptance_error" in st.session_state:
+        st.error("驗收無法完成：" + st.session_state["acceptance_error"])
+    if "acceptance_future" in st.session_state:
+        show_acceptance_progress()
+    else:
+        render_acceptance_report()
+
 # Keep the editable search panel immediately below the header/refresh button.
 # When results exist, collapse it by default so the rankings remain visible
 # without a long scroll on iPhone home-screen mode.
@@ -781,21 +798,3 @@ if 'results' in st.session_state:
     st.caption('本工具僅供研究與選股輔助，不構成投資建議。週 K 使用完整交易週，不包含本週尚未結束的 K 棒。')
     # The clearly disclosed Shopee link is already available above the form.
     # Avoid repeated ad cards after the rankings.
-
-
-# User-initiated historical acceptance. Never auto-fetch hundreds of market
-# days for normal visitors; heavy I/O stays inside the existing worker pool.
-with st.expander("🧪 歷史驗收｜11/10（二）訊號 → 11/13（五）", expanded=False):
-    st.caption("固定週二成交量前 150 大，核對 V 底及酒田買入訊號。"
-               " 分別統計每天收漲、三日內曾漲及週五收高。")
-    if st.button("執行官方歷史行情驗收", use_container_width=True,
-                 disabled="acceptance_future" in st.session_state):
-        st.session_state["acceptance_future"] = _search_pool()["executor"].submit(
-            run_20261110_acceptance)
-        st.rerun()
-    if "acceptance_error" in st.session_state:
-        st.error("驗收無法完成：" + st.session_state["acceptance_error"])
-    if "acceptance_future" in st.session_state:
-        show_acceptance_progress()
-    else:
-        render_acceptance_report()
