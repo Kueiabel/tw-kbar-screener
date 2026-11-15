@@ -428,8 +428,11 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame,
             f' · 兩日均量 {two_day_volume_ratio:.2f} 倍'
             if pivot_date and pivot_volume_ratio > 0 else ''
         )
-        date_label = (f'止跌 {pivot_date} → 確認 {signal_date}{volume_info}'
-                      if pivot_date else f'訊號日期：{signal_date}')
+        date_label = (
+            f'止跌 {pivot_date} → 反轉確認 {signal_date}{volume_info}'
+            if pivot_date and pivot_date != signal_date else
+            f'底部訊號 {signal_date}{volume_info}'
+        )
         industry_value = item.get('industry', '未分類')
         industry = escape(str(industry_value)) if pd.notna(industry_value) else '未分類'
         score = int(item['score'])
