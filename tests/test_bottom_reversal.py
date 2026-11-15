@@ -122,5 +122,68 @@ class V21Tests(unittest.TestCase):
         self.assertTrue(b.empty)
 
 
+
+class SakataBuyOnlyTests(unittest.TestCase):
+    @staticmethod
+    def bars():
+        dates = pd.bdate_range(end="2026-11-13", periods=21)
+        # Default: mild downward background, no bullish three-bar patterns.
+        prices = np.linspace(125, 98, len(dates))
+        return pd.DataFrame([
+            {"date":d.strftime("%Y-%m-%d"), "code":"9001",
+             "name":"模擬股票", "open":float(p+.7),
+             "high":float(p+1.3), "low":float(p-1.3),
+             "close":float(p), "shares":2_000_000,
+             "turnover":float(p*2_000_000)}
+            for d,p in zip(dates,prices)])
+
+    def test_morning_star_bullish_only(self):
+        from patterns import _v21_patterns_at
+        df = self.bars()
+        df.loc[18, ["open","high","low","close"]] = [105.,106.,92.,93.]
+        df.loc[19, ["open","high","low","close"]] = [92.,94.,90.,92.5]
+        df.loc[20, ["open","high","low","close"]] = [93.,104.,92.,103.]
+        got = _v21_patterns_at(df, ["酒田三川晨星"])
+        self.assertIn("酒田三川晨星", [x[5] for x in got])
+        self.assertTrue(all(x[0] == "bottom" for x in got))
+
+    def test_three_red_soldiers(self):
+        from patterns import _v21_patterns_at
+        df = self.bars()
+        for k, op,cl in ((18,95.,98.),(19,97.,100.),(20,99.,102.)):
+            df.loc[k, ["open","high","low","close"]] = [
+                op,cl+.5,op-.6,cl]
+        got = _v21_patterns_at(df, ["酒田紅三兵"])
+        self.assertIn("酒田紅三兵", [x[5] for x in got])
+
+    def test_rising_three_methods_continuation(self):
+        from patterns import _v21_patterns_at
+        df = self.bars()
+        candles = {
+            16:(100.,111.,99.,110.),
+            17:(108.,109.,105.,106.),
+            18:(107.,108.,103.,105.),
+            19:(105.,107.,102.,104.),
+            20:(105.,116.,104.,115.),
+        }
+        for k, vals in candles.items():
+            df.loc[k, ["open","high","low","close"]] = vals
+        got = _v21_patterns_at(df, ["酒田上升三法"])
+        self.assertIn("酒田上升三法", [x[5] for x in got])
+
+    def test_no_bearish_sakata_results(self):
+        from patterns import _v21_patterns_at
+        df = self.bars()
+        got = _v21_patterns_at(df, [
+            "酒田三川晨星","酒田紅三兵","酒田上升三法"])
+        self.assertFalse(any(x[0] == "top" for x in got))
+
+    def test_sakata_optional_does_not_change_v_default(self):
+        from patterns import _v21_patterns_at
+        df = self.bars()
+        got = _v21_patterns_at(df, ["V底槌頭","V底長下影","V底三K反轉"])
+        self.assertFalse(any(str(x[5]).startswith("酒田") for x in got))
+
+
 if __name__ == "__main__":
     unittest.main()
