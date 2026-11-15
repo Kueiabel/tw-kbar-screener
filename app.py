@@ -19,6 +19,7 @@ import requests
 import streamlit as st
 
 from patterns import screen
+from backtest_20261110 import evaluate_acceptance
 from twse_source import ensure_history, load_companies, open_db, today_taiwan
 
 st.set_page_config(page_title="台股 K 棒快速篩選", page_icon="📈", layout="wide", initial_sidebar_state="collapsed")
@@ -286,6 +287,93 @@ def run_stock_scan(opts):
         finally:
             if db is not None:
                 db.close()
+
+
+def run_20261110_acceptance():
+    """Background-only historical test; never runs on routine page load."""
+    pool = _search_pool()
+    with pool["lock"]:
+        db = None
+        try:
+            db = open_db()
+            with requests.Session() as session:
+                companies = load_companies(db, session)
+                # Last observed return day is 11/13; include enough prior
+                # bars to build the 21-K signal as it stood on 11/10.
+                info = ensure_history(
+                    db, session, datetime(2026,11,13).date(), 100,
+                    progress=None, throttle=.75)
+            return evaluate_acceptance(info["data"], companies)
+        finally:
+            if db is not None:
+                db.close()
+
+
+@st.fragment(run_every="2s")
+def show_acceptance_progress():
+    if "acceptance_future" not in st.session_state:
+        return
+    future = st.session_state["acceptance_future"]
+    if future.done():
+        try:
+            st.session_state["acceptance_report"] = future.result()
+            st.session_state.pop("acceptance_error", None)
+        except Exception as exc:
+            st.session_state["acceptance_error"] = str(exc)
+        finally:
+            st.session_state.pop("acceptance_future", None)
+        st.rerun(scope="app")
+    st.info("正在核對官方歷史行情：11/10 的選股名單及 11/11～11/13 的收盤表現。")
+
+
+def render_acceptance_report():
+    report = st.session_state.get("acceptance_report")
+    if report is None:
+        return
+    st.caption("嚴格以 2026/11/10 盤後資料選股、成交量前 150 大；"
+               "不使用 11/11～11/13 的資料產生訊號。")
+    for model, block in report.items():
+        st.markdown("**" + model + "**")
+        mode = st.radio("顯示樣本", ["週二當日完成", "週二已知（含週一）"],
+                        horizontal=True, key="acceptance_mode_"+model)
+        is_exact = mode == "週二當日完成"
+        metrics = block["metrics_exact" if is_exact else "metrics_available"]
+        table = block["finished_tuesday" if is_exact else "available_tuesday"]
+        n = metrics["valid"]
+        st.caption(f"候選 {metrics['candidates']} 檔 · 四天報價齊全 {n} 檔 · "
+                   f"報價不足 {metrics['missing']} 檔")
+        if n:
+            cols = st.columns(2)
+            with cols[0]:
+                st.metric("週三、四、五每天收漲",
+                          f"{metrics['all_three_daily_up_rate']:.1f}%",
+                          help="週三>週二、週四>週三、週五>週四，同時成立")
+                st.metric("三日內曾高於週二",
+                          f"{metrics['ever_above_tuesday_rate']:.1f}%")
+            with cols[1]:
+                st.metric("週五收盤高於週二",
+                          f"{metrics['friday_above_tuesday_rate']:.1f}%")
+                st.metric("三天收盤都高於週二",
+                          f"{metrics['all_three_vs_tuesday_rate']:.1f}%")
+            columns = ["code", "name", "pattern", "signal_date",
+                       "volume_rank", "2026-11-10", "2026-11-11",
+                       "2026-11-12", "2026-11-13",
+                       "週三漲跌%", "週四漲跌%", "週五漲跌%",
+                       "週二至週五%", "連續三天收漲", "週五收盤高於週二"]
+            shown = [x for x in columns if x in table.columns]
+            st.dataframe(table[shown],hide_index=True,use_container_width=True)
+            st.download_button(
+                "下載完整驗收明細 CSV · " + model,
+                table.to_csv(index=False).encode("utf-8-sig"),
+                file_name=("v_sakata_" if "酒田" in model else "v_only_")
+                          + ("exact_" if is_exact else "discovered_")
+                          + "20261110_to_20261113.csv",
+                mime="text/csv", use_container_width=True,
+                key="download_acceptance_"+model+mode)
+        else:
+            st.info("這個設定沒有可計算的完整樣本，不能計算或宣稱勝率。")
+    st.caption("注意：此為歷史盤後價差統計，未計入交易成本、除權息還原及"
+               "歷史上市成分股存活偏差；不等於可實現的買賣報酬。")
 
 
 @st.fragment(run_every="2s")
@@ -694,3 +782,20 @@ if 'results' in st.session_state:
     # The clearly disclosed Shopee link is already available above the form.
     # Avoid repeated ad cards after the rankings.
 
+
+# User-initiated historical acceptance. Never auto-fetch hundreds of market
+# days for normal visitors; heavy I/O stays inside the existing worker pool.
+with st.expander("🧪 歷史驗收｜11/10（二）訊號 → 11/13（五）", expanded=False):
+    st.caption("固定週二成交量前 150 大，核對 V 底及酒田買入訊號。"
+               " 分別統計每天收漲、三日內曾漲及週五收高。")
+    if st.button("執行官方歷史行情驗收", use_container_width=True,
+                 disabled="acceptance_future" in st.session_state):
+        st.session_state["acceptance_future"] = _search_pool()["executor"].submit(
+            run_20261110_acceptance)
+        st.rerun()
+    if "acceptance_error" in st.session_state:
+        st.error("驗收無法完成：" + st.session_state["acceptance_error"])
+    if "acceptance_future" in st.session_state:
+        show_acceptance_progress()
+    else:
+        render_acceptance_report()
