@@ -853,7 +853,8 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
            min_history_bars: int = 65, daily_liquidity: dict | None = None,
            require_above_ma5: bool = False,
            require_all_signals: bool = False,
-           top_volume_n: int | None = None):
+           top_volume_n: int | None = None,
+           require_week_low: bool = False):
     """Returns (bottom dataframe, top dataframe, diagnostics, selected price dataframe).
 
     No substitution of unqualified stocks to reach 25; displays fewer if necessary.
@@ -929,6 +930,20 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
                         continue
                 elif age >= signal_days:
                     continue
+                # Optional one-week LOW requirement. Daily uses the five
+                # latest completed trading bars; weekly uses the most recent
+                # completed week. Shape date must be in the user-selected
+                # recent-window, not an older pattern falsely re-labelled.
+                if require_week_low and category in V21_CATEGORIES:
+                    pivot_i = i-1 if category == "V底三K反轉" else i
+                    if pivot_i < 5:
+                        continue
+                    # The signal's reversal LOW must be a five-session low
+                    # (including the pivot bar), rather than merely a dip
+                    # somewhere in the 21-bar history.
+                    previous_week_low = float(grp.low.iloc[pivot_i-4:pivot_i+1].min())
+                    if float(grp.low.iloc[pivot_i]) > previous_week_low + 1e-8:
+                        continue
                 # Other breakout signals keep their prior timing.
                 if name in ("錘頭隔日突破・第三日觀察",
                             "低點止跌後突破") and age != 0:
