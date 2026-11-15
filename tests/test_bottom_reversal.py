@@ -86,9 +86,14 @@ class V21Tests(unittest.TestCase):
         self.assertEqual(d["volume_universe"],150)
 
     def test_21_k_bars_eligible(self):
-        df = sample().tail(21).copy()
+        # A current-day signal can use exactly 21 bars. A yesterday
+        # signal needs 22 bars: 21 available AS OF yesterday plus today.
+        df = sample(pivot_offset=-1).tail(21).copy()
         b, _, _, _ = run(df,selected=("V底槌頭",))
-        self.assertEqual(len(b),1)  # 21 bars are enough for today's signal
+        self.assertEqual(len(b),1)
+        prior_day = sample().tail(21).copy()
+        b2, _, _, _ = run(prior_day,selected=("V底槌頭",))
+        self.assertTrue(b2.empty)  # no 21-bar history as of yesterday
 
     def test_week_window_detects_earlier_v_bottom(self):
         df = sample(pivot_offset=-4)
@@ -101,7 +106,10 @@ class V21Tests(unittest.TestCase):
 
     def test_week_window_rejects_if_another_day_is_lower(self):
         df = sample(pivot_offset=-4)
-        df.loc[df.index[-2],"low"] = 86.
+        # Make a new LOWER low without accidentally creating another
+        # hammer/long-shadow at this bar (a false negative test otherwise).
+        ix = df.index[-2]
+        df.loc[ix, ["open","high","low","close"]] = [88.,105.,86.,104.]
         new, _, _, _ = run(
             df,selected=("V底槌頭",),signal_days=5,week_low=True)
         self.assertTrue(new.empty)
