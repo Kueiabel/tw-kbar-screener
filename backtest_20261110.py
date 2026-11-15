@@ -99,17 +99,12 @@ def evaluate_acceptance(bars: pd.DataFrame, companies: dict) -> dict:
         rank, _, diagnostics, _ = screen(
             bars, companies, SIGNAL_DAY, **args)
         all_candidates = _attach_outcomes(rank, bars)
-        if not all_candidates.empty:
-            fresh = all_candidates[
-                all_candidates.signal_date == SIGNAL_DAY].copy()
-            # The exact-day selection must not rely on a ranking where a
-            # different signal (from Monday) was chosen as the 'best' one.
-            strict_rank, _, _, _ = screen(
-                bars, companies, SIGNAL_DAY,
-                **{**args, "signal_days":1})
-            fresh = _attach_outcomes(strict_rank, bars)
-        else:
-            fresh = pd.DataFrame()
+        # Exact Tuesday signal must be screened independently instead
+        # of inferred from a ranked Monday/Tuesday merged candidate.
+        strict_rank, _, _, _ = screen(
+            bars, companies, SIGNAL_DAY,
+            **{**args, "signal_days":1})
+        fresh = _attach_outcomes(strict_rank, bars)
         results[label] = {
             "volume_universe": diagnostics.get("volume_universe"),
             "available_tuesday": all_candidates,
