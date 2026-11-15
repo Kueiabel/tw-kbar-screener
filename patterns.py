@@ -852,7 +852,8 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
            ma_windows=(20,52), hammer_only_bottom: bool = False,
            min_history_bars: int = 65, daily_liquidity: dict | None = None,
            require_above_ma5: bool = False,
-           require_all_signals: bool = False):
+           require_all_signals: bool = False,
+           top_volume_n: int | None = None):
     """Returns (bottom dataframe, top dataframe, diagnostics, selected price dataframe).
 
     No substitution of unqualified stocks to reach 25; displays fewer if necessary.
@@ -863,6 +864,16 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
         raise ValueError("請至少選取一種搜尋目標")
     data = data[data.code.isin(companies.keys()) & (data.date <= as_of)].copy()
     data = data.sort_values(["code","date"])
+    # Rank the entire listed-stock universe by ACTUAL SHARES traded on
+    # the effective scan bar. A weekly search ranks complete weekly volumes.
+    # A stock needs a valid bar on that date to enter the top-150 universe.
+    volume_rank = {}
+    if top_volume_n is not None:
+        newest = data[data.date == as_of].copy()
+        newest = newest[(newest.shares > 0) & newest.code.isin(companies)]
+        newest = newest.sort_values(["shares","code"],ascending=[False,True])
+        volume_rank = {code: n+1 for n,code in enumerate(
+            newest.code.astype(str).head(top_volume_n))}
     result = {"bottom":[], "top":[]}
     covered, liquid, with_patterns = 0, 0, 0
     for code, grp in data.groupby('code', sort=False):
@@ -870,6 +881,8 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
         if len(grp) < min_history_bars or str(grp.date.iloc[-1]) != as_of:
             continue
         covered += 1
+        if top_volume_n is not None and code not in volume_rank:
+            continue
         if daily_liquidity is not None:
             if code not in daily_liquidity:
                 continue
@@ -895,7 +908,7 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
         # V setups are evaluated on T-2 and T-1, with the selected
         # search-date bar T used only to display the results.
         v_targets = {"V型反轉", "V底K棒", "V底放量"}
-        max_age_count = max(signal_days, 1)
+        max_age_count = max(signal_days, 2 if V21_CATEGORIES.intersection(enabled_categories) else 1)
         for age in range(min(max_age_count, len(grp)-min_history_bars+1)):
             i = len(grp) - 1 - age
             partial = grp.iloc[:i+1]
@@ -904,7 +917,10 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
                 # Main strategy uses candle scan-day -2 and confirms at
                 # scan-day -1; all other pattern categories retain their
                 # user-selected lookback number of completed bars.
-                if category in v_targets:
+                if category in V21_CATEGORIES:
+                    if age > 1:
+                        continue
+                elif category in v_targets:
                     if age != 0:
                         continue
                 elif age >= signal_days:
@@ -929,7 +945,9 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
                     score = min(100, score + 12)
                 prev_close = float(grp.close.iloc[-2]) if len(grp) > 1 else float(grp.close.iloc[-1])
                 pct = (grp.close.iloc[-1] / prev_close-1)*100 if prev_close else 0
-                low_day_i = i - 2 if category in v_targets else -1
+                low_day_i = (i-1 if category == "V底三K反轉" else i
+                             if category in V21_CATEGORIES else
+                             i-2 if category in v_targets else -1)
                 low_day_ratio = (
                     float(grp.shares.iloc[low_day_i])
                     / max(float(grp.shares.iloc[low_day_i-5:low_day_i].mean()), 1.)
@@ -957,7 +975,11 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
                     pivot_volume_ratio=round(low_day_ratio, 2),
                     two_day_volume_ratio=round(combined_volume_ratio, 2),
                 )
-                result[side].append(signal.as_dict())
+                signal_payload = signal.as_dict()
+                if top_volume_n is not None:
+                    signal_payload["volume_rank"] = volume_rank[code]
+                result[side].append(signal_payload)
+                continue
         if code_signals:
             with_patterns += 1
     final = []
@@ -1008,6 +1030,7 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
                 frame.insert(0, "rank", np.arange(1, len(frame) + 1))
         final.append(frame)
     diag = {"covered": covered, "liquid": liquid, "matched":with_patterns, "listed":len(companies),
+            "volume_universe":len(volume_rank) if top_volume_n is not None else None,
             "bottom_candidates":len(result['bottom']),"top_candidates":len(result['top'])}
     # The UI needs price bars only for the displayed Top 25 charts.
     selected_codes = set()
