@@ -255,7 +255,8 @@ def run_stock_scan(opts):
                 require_all_signals=opts["require_all_signals"],
                 min_history_bars=required_bars,
                 daily_liquidity=liquidity,
-                top_volume_n=150)
+                top_volume_n=150,
+                require_week_low=opts["require_week_low"])
             for ranking in (bottom, top):
                 if not ranking.empty:
                     ranking["industry"] = ranking["code"].map(
@@ -274,6 +275,7 @@ def run_stock_scan(opts):
                     "min_price": opts["min_price"],
                     "max_price": opts["max_price"],
                     "signal_days": opts["signal_days"],
+                    "require_week_low": opts["require_week_low"],
                     "targets": list(opts["targets"]),
                     "hammer_only_bottom": opts["hammer_only_bottom"],
                     "require_above_ma5": opts["require_above_ma5"],
@@ -521,7 +523,7 @@ search_panel = (st.expander('🔎 調整條件・重新選股', expanded=False)
                 if 'results' in st.session_state else st.container(border=True))
 with search_panel:
     st.subheader('設定篩選條件')
-    st.caption('成交量前 150 大 · 21 K 圖形辨識 · 最近 2 根 K 訊號')
+    st.caption('成交量前 150 大 · 21 根 K 圖形辨識 · 可選最近一週低點')
     frame_choice = st.selectbox(
         'K 線搜尋週期', ['日 K', '週 K'], index=0,
         help='預設日 K；週 K 由證交所盤後日 K 合成，僅採用已完成交易週。')
@@ -560,7 +562,13 @@ with search_panel:
     # are the ONLY technical selection switches in this streamlined edition.
     require_above_ma5 = False
     st.markdown('**21 K 底部反轉訊號**')
-    st.caption('最近兩根 K 內出現訊號；三種獨立判斷，符合其中一種就列入。')
+    scan_period = st.radio(
+        '搜尋時間區間',
+        ['最近 2 根 K', '最近一週低點'],
+        index=0, horizontal=True,
+        help='最近一週：日 K 查看最近 5 個交易日內形成的 V 底低點；週 K 查看最新完成的一週。')
+    require_week_low = scan_period == '最近一週低點'
+    st.caption('最近一週需同時出現週內相對低點和 V 型底部圖形；三種型態任一符合即可列入。')
     pick_hammer = st.checkbox('槌頭線', value=True,
         help='21 根 K 底部區，實體短、下影明顯長。')
     pick_lower = st.checkbox('長下影線', value=True,
@@ -575,7 +583,7 @@ with search_panel:
     if pick_3k:
         targets.append('V底三K反轉')
     require_all_signals = False
-    signal_days = 2
+    signal_days = (5 if timeframe == 'D' else 1) if require_week_low else 2
     ma_windows = [5,10,20,52]
     history_days = 165
     valid_targets = bool(targets) and price_error is None
@@ -595,7 +603,8 @@ if run:
         "hammer_only_bottom": False,
         "require_above_ma5": require_above_ma5,
         "require_all_signals": require_all_signals,
-        "signal_days": signal_days, "history_days": history_days,
+        "signal_days": signal_days,
+        "require_week_low": require_week_low, "history_days": history_days,
     }
     st.session_state["scan_future"] = _search_pool()["executor"].submit(
         run_stock_scan, criteria)
