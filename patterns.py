@@ -909,7 +909,11 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
         # search-date bar T used only to display the results.
         v_targets = {"V型反轉", "V底K棒", "V底放量"}
         max_age_count = max(signal_days, 2 if V21_CATEGORIES.intersection(enabled_categories) else 1)
-        for age in range(min(max_age_count, len(grp)-min_history_bars+1)):
+        # For a two-bar signal lookback, at least 22 total bars are
+        # required to supply a complete 21-bar pattern window at age=1.
+        history_lookback = (21 if V21_CATEGORIES.intersection(enabled_categories)
+                            else min_history_bars)
+        for age in range(min(max_age_count, len(grp)-history_lookback+1)):
             i = len(grp) - 1 - age
             partial = grp.iloc[:i+1]
             for side, name, base, reason, stage, category in _patterns_at(
