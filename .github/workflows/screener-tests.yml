@@ -5,6 +5,12 @@ on:
       - "主要的"
   workflow_dispatch:
 
+# Multiple rapid GitHub edits should cancel older in-progress checks.
+# This prevents redundant runs from queueing, not genuine failure notices.
+concurrency:
+  group: screener-regression-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -21,5 +27,5 @@ jobs:
           python -m pip install "pandas>=2.0,<3.0" "numpy>=1.24,<3.0"
       - name: Compile source
         run: python -m compileall -q patterns.py twse_source.py app.py tests
-      - name: Run V-bottom tests
+      - name: Run screening and backtest regression tests
         run: python -m unittest discover -s tests -v
