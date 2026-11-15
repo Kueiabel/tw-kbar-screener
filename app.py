@@ -571,13 +571,17 @@ with search_panel:
         index=0, horizontal=True,
         help='最近一週：日 K 查看最近 5 個交易日內形成的 V 底低點；週 K 查看最新完成的一週。')
     require_week_low = scan_period == '最近一週低點'
-    st.caption('最近一週需同時出現週內相對低點和 V 型底部圖形；三種型態任一符合即可列入。')
+    st.caption('選取的買入型態任一符合即可列入；「最近一週低點」只保留低檔反轉型態。')
     pick_hammer = st.checkbox('槌頭線', value=True,
         help='21 根 K 底部區，實體短、下影明顯長。')
     pick_lower = st.checkbox('長下影線', value=True,
         help='21 根 K 底部區，盤中探低後收回、下影明顯。')
     pick_3k = st.checkbox('三 K 棒 V 底反轉', value=True,
-        help='三根 K 棒先探低，第三根紅 K 收復部分跌幅。完成日需在最近兩根 K 之內。')
+        help='三根 K 棒先探低，第三根紅 K 收復部分跌幅。')
+    st.markdown('**酒田戰法（只搜尋買入訊號）**')
+    pick_sakata = st.checkbox(
+        '加入酒田多頭型態', value=False,
+        help='加選三川晨星、赤三兵、上升三法；不包含三山頂、黑三兵等賣出型態。上升三法屬趨勢延續，不一定是低點；最近一週低點模式會排除這種非低檔型態。')
     targets = []
     if pick_hammer:
         targets.append('V底槌頭')
@@ -585,6 +589,8 @@ with search_panel:
         targets.append('V底長下影')
     if pick_3k:
         targets.append('V底三K反轉')
+    if pick_sakata:
+        targets.extend(['酒田三川晨星', '酒田紅三兵', '酒田上升三法'])
     require_all_signals = False
     signal_days = (5 if timeframe == 'D' else 1) if require_week_low else 2
     ma_windows = [5,10,20,52]
@@ -668,7 +674,7 @@ if 'results' in st.session_state:
         st.markdown('''
 **判斷型態**
 
-- **底部預設：** 日 K 與週 K 均用最近 **21 根 K 棒**，先以查詢日上市普通股**成交量前 150 大**建立篩選名單，再尋找最近兩根 K 內形成的 V 底槌頭、長下影或三 K 棒反轉；三者任一符合即可列入。
+- **底部預設：** 日 K／週 K 均以 21 根 K 判斷、查詢日成交量前 150 大為範圍。V 底槌頭、長下影、三 K 棒各自獨立。酒田戰法可選三川晨星、赤三兵、上升三法等**多頭買入候選**，不包含賣出型態。
 - **組合方式：** 三類訊號各自獨立，符合任一種即可。前 150 大以查詢日的成交股數排名，週 K 依最新完整週成交股數排名。最低／最高股價可自行設定。
 - **搜尋面板：** 取消舊的 20 日均量與每日成交金額下限，改用前 150 大成交量；保留股價區間。
 - **頂部訊號：** 此版專注 V 型底部候選，暫不顯示頂部候選空榜單。
