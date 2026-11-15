@@ -930,20 +930,21 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
                         continue
                 elif age >= signal_days:
                     continue
-                # Optional one-week LOW requirement. Daily uses the five
-                # latest completed trading bars; weekly uses the most recent
-                # completed week. Shape date must be in the user-selected
-                # recent-window, not an older pattern falsely re-labelled.
+                # The daily week-low option requires the actual reversal
+                # bar to be the lowest LOW of the most recent five completed
+                # trading days, not merely of the five bars before the pivot.
+                # For weekly bars, signal_days=1 already limits signals to
+                # the latest completed weekly candle; a three-K setup can
+                # have its bottom in the preceding weekly candle.
                 if require_week_low and category in V21_CATEGORIES:
-                    pivot_i = i-1 if category == "V底三K反轉" else i
-                    if pivot_i < 5:
-                        continue
-                    # The signal's reversal LOW must be a five-session low
-                    # (including the pivot bar), rather than merely a dip
-                    # somewhere in the 21-bar history.
-                    previous_week_low = float(grp.low.iloc[pivot_i-4:pivot_i+1].min())
-                    if float(grp.low.iloc[pivot_i]) > previous_week_low + 1e-8:
-                        continue
+                    if signal_days == 5:
+                        pivot_i = i-1 if category == "V底三K反轉" else i
+                        first_recent = len(grp)-5
+                        if pivot_i < first_recent:
+                            continue
+                        current_week_low = float(grp.low.iloc[first_recent:].min())
+                        if float(grp.low.iloc[pivot_i]) > current_week_low + 1e-8:
+                            continue
                 # Other breakout signals keep their prior timing.
                 if name in ("錘頭隔日突破・第三日觀察",
                             "低點止跌後突破") and age != 0:
