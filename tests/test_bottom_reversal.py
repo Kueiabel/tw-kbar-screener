@@ -36,13 +36,14 @@ def sample(code="9001", pivot_offset=-2, shape="hammer", last_volume=3_500_000):
 
 
 def run(data, selected=("V底槌頭","V底長下影","V底三K反轉"),
-        limit=150):
+        limit=150, signal_days=2, week_low=False):
     names = {x: "模擬股票" for x in data.code.unique()}
     return screen(
         data, names, data.date.max(),
         enabled_categories=selected, top_volume_n=limit,
         min_vol_lots=0,min_turnover_100m=0.,min_history_bars=21,
-        signal_days=2,top_n=25,require_all_signals=False)
+        signal_days=signal_days,top_n=25,require_all_signals=False,
+        require_week_low=week_low)
 
 
 class V21Tests(unittest.TestCase):
@@ -88,6 +89,28 @@ class V21Tests(unittest.TestCase):
         df = sample().tail(21).copy()
         b, _, _, _ = run(df,selected=("V底槌頭",))
         self.assertEqual(len(b),1)  # 21 bars are enough for today's signal
+
+    def test_week_window_detects_earlier_v_bottom(self):
+        df = sample(pivot_offset=-4)
+        old, _, _, _ = run(df,selected=("V底槌頭",),signal_days=2)
+        new, _, _, _ = run(
+            df,selected=("V底槌頭",),signal_days=5,week_low=True)
+        self.assertTrue(old.empty)
+        self.assertEqual(len(new),1)
+        self.assertEqual(new.iloc[0]["age"],3)
+
+    def test_week_window_rejects_if_another_day_is_lower(self):
+        df = sample(pivot_offset=-4)
+        df.loc[df.index[-2],"low"] = 86.
+        new, _, _, _ = run(
+            df,selected=("V底槌頭",),signal_days=5,week_low=True)
+        self.assertTrue(new.empty)
+
+    def test_week_low_scan_respects_top_150(self):
+        df = sample()
+        new, _, _, _ = run(df,selected=("V底槌頭",),
+                           limit=0,signal_days=5,week_low=True)
+        self.assertTrue(new.empty)
 
     def test_price_range_filter_unchanged(self):
         df = sample()
