@@ -1,6 +1,11 @@
 test_missing_friday_bar_excluded_from_denominator (test_acceptance_backtest.AcceptanceBacktestTests.test_missing_friday_bar_excluded_from_denominator) ... ok
 test_missing_required_market_date_is_error (test_acceptance_backtest.AcceptanceBacktestTests.test_missing_required_market_date_is_error) ... ok
 test_three_separate_performance_definitions (test_acceptance_backtest.AcceptanceBacktestTests.test_three_separate_performance_definitions) ... ok
+test_B_does_not_require_A_bottom (test_bottom_reversal.ConsolidationBreakoutTests.test_B_does_not_require_A_bottom) ... ok
+test_breakout_must_close_above_prior_highs (test_bottom_reversal.ConsolidationBreakoutTests.test_breakout_must_close_above_prior_highs) ... ok
+test_breakout_must_have_extra_volume (test_bottom_reversal.ConsolidationBreakoutTests.test_breakout_must_have_extra_volume) ... ok
+test_citic_2891_breakout_is_B_not_A (test_bottom_reversal.ConsolidationBreakoutTests.test_citic_2891_breakout_is_B_not_A) ... ok
+test_consecutive_lower_closes_never_count_as_breakout (test_bottom_reversal.ConsolidationBreakoutTests.test_consecutive_lower_closes_never_count_as_breakout) ... ok
 test_morning_star_bullish_only (test_bottom_reversal.SakataBuyOnlyTests.test_morning_star_bullish_only) ... ok
 test_no_bearish_sakata_results (test_bottom_reversal.SakataBuyOnlyTests.test_no_bearish_sakata_results) ... ok
 test_rising_three_methods_continuation (test_bottom_reversal.SakataBuyOnlyTests.test_rising_three_methods_continuation) ... ok
@@ -22,6 +27,6 @@ test_week_window_detects_earlier_v_bottom (test_bottom_reversal.V21Tests.test_we
 test_week_window_rejects_if_another_day_is_lower (test_bottom_reversal.V21Tests.test_week_window_rejects_if_another_day_is_lower) ... ok
 
 ----------------------------------------------------------------------
-Ran 22 tests in 0.361s
+Ran 27 tests in 0.371s
 
 OK
