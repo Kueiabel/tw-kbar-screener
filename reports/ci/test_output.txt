@@ -22,6 +22,6 @@ test_week_window_detects_earlier_v_bottom (test_bottom_reversal.V21Tests.test_we
 test_week_window_rejects_if_another_day_is_lower (test_bottom_reversal.V21Tests.test_week_window_rejects_if_another_day_is_lower) ... ok
 
 ----------------------------------------------------------------------
-Ran 22 tests in 0.233s
+Ran 22 tests in 0.209s
 
 OK
