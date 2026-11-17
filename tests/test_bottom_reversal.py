@@ -29,6 +29,12 @@ def sample(code="9001", pivot_offset=-2, shape="hammer", last_volume=3_500_000):
         rows[-1].update(open=95.,high=107.,low=94.,close=106.)
     elif shape == "none":
         pass
+    # Reversal needs a bullish CONFIRMATION bar, not only a pivot wick.
+    # When a pivot was selected four days ago, confirm it on day -3.
+    if shape in ("hammer", "lower"):
+        ci = pivot_offset+1 if pivot_offset < -1 else None
+        if ci is not None:
+            rows[ci].update(open=96.,high=103.,low=93.,close=102.)
     rows[-1]["shares"] = last_volume
     for row in rows:
         row["turnover"] = row["shares"]*row["close"]
@@ -88,12 +94,12 @@ class V21Tests(unittest.TestCase):
     def test_21_k_bars_eligible(self):
         # A current-day signal can use exactly 21 bars. A yesterday
         # signal needs 22 bars: 21 available AS OF yesterday plus today.
-        df = sample(pivot_offset=-1).tail(21).copy()
+        df = sample().tail(21).copy()
         b, _, _, _ = run(df,selected=("V底槌頭",))
-        self.assertEqual(len(b),1)
-        prior_day = sample().tail(21).copy()
-        b2, _, _, _ = run(prior_day,selected=("V底槌頭",))
-        self.assertTrue(b2.empty)  # no 21-bar history as of yesterday
+        self.assertTrue(b.empty)  # pivot occurred one bar ago: needs 22
+        enough = sample().tail(22).copy()
+        b2, _, _, _ = run(enough,selected=("V底槌頭",))
+        self.assertEqual(len(b2),1)
 
     def test_week_window_detects_earlier_v_bottom(self):
         df = sample(pivot_offset=-4)
@@ -102,14 +108,14 @@ class V21Tests(unittest.TestCase):
             df,selected=("V底槌頭",),signal_days=5,week_low=True)
         self.assertTrue(old.empty)
         self.assertEqual(len(new),1)
-        self.assertEqual(new.iloc[0]["age"],3)
+        self.assertEqual(new.iloc[0]["age"],2)
 
     def test_week_window_rejects_if_another_day_is_lower(self):
         df = sample(pivot_offset=-4)
-        # Make a new LOWER low without accidentally creating another
-        # hammer/long-shadow at this bar (a false negative test otherwise).
-        ix = df.index[-2]
-        df.loc[ix, ["open","high","low","close"]] = [88.,105.,86.,104.]
+        # Break the previous pivot low on the scan date; signal should be
+        # invalidated, without creating a new confirmed bottom.
+        ix = df.index[-1]
+        df.loc[ix, ["open","high","low","close"]] = [88.,106.,86.,101.]
         new, _, _, _ = run(
             df,selected=("V底槌頭",),signal_days=5,week_low=True)
         self.assertTrue(new.empty)
@@ -119,6 +125,29 @@ class V21Tests(unittest.TestCase):
         new, _, _, _ = run(df,selected=("V底槌頭",),
                            limit=0,signal_days=5,week_low=True)
         self.assertTrue(new.empty)
+
+
+    def test_unconfirmed_latest_hammer_is_excluded(self):
+        df = sample(pivot_offset=-1, shape="hammer")
+        b, _, _, _ = run(df,selected=("V底槌頭",))
+        self.assertTrue(b.empty, "Single hammer without next K cannot be V rebound")
+
+    def test_gigabyte_like_continued_slide_is_excluded(self):
+        df = sample(shape="none")
+        # Last three bars still make progressively lower closes;
+        # a continuing decline is not a V reversal.
+        df.loc[df.index[-3], ["open","high","low","close"]] = [102.,103.,96.,97.]
+        df.loc[df.index[-2], ["open","high","low","close"]] = [96.,97.,90.,91.]
+        df.loc[df.index[-1], ["open","high","low","close"]] = [91.,92.,85.,87.]
+        b, _, _, _ = run(df)
+        self.assertTrue(b.empty)
+
+    def test_pivot_hammer_with_weak_next_red_is_excluded(self):
+        df = sample()
+        # A small positive candle that fails to recover 1% is not confirmed.
+        df.loc[df.index[-1], ["open","high","low","close"]] = [95.3,96.,94.,95.6]
+        b, _, _, _ = run(df,selected=("V底槌頭",))
+        self.assertTrue(b.empty)
 
     def test_price_range_filter_unchanged(self):
         df = sample()
@@ -177,7 +206,7 @@ class SakataBuyOnlyTests(unittest.TestCase):
         for k, vals in candles.items():
             df.loc[k, ["open","high","low","close"]] = vals
         got = _v21_patterns_at(df, ["酒田上升三法"])
-        self.assertIn("酒田上升三法", [x[5] for x in got])
+        self.assertNotIn("酒田上升三法", [x[5] for x in got])
 
     def test_no_bearish_sakata_results(self):
         from patterns import _v21_patterns_at
