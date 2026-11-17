@@ -1,0 +1,101 @@
+Retrieving official TWSE 2026-08-15...2026-11-13 after-hours prices.
+TWSE bars: 65,061; sessions: 60, companies in current master: 1093
+{
+  "signal_date": "2026-11-10",
+  "future_days": [
+    "2026-11-11",
+    "2026-11-12",
+    "2026-11-13"
+  ],
+  "data_source": "Taiwan Stock Exchange MI_INDEX after-trading",
+  "historical_sessions": 60,
+  "listed_company_master": 1093,
+  "source_qualification": "current company list; unadjusted OHLCV; survivorship bias possible",
+  "groups": {
+    "原 V 底三型態": {
+      "volume_universe": 150,
+      "two_session_signals": {
+        "candidates": 23,
+        "valid": 23,
+        "missing": 0,
+        "all_three_daily_up": 2,
+        "all_three_daily_up_rate": 8.7,
+        "all_three_vs_tuesday": 5,
+        "all_three_vs_tuesday_rate": 21.74,
+        "ever_above_tuesday": 21,
+        "ever_above_tuesday_rate": 91.3,
+        "friday_above_tuesday": 14,
+        "friday_above_tuesday_rate": 60.87
+      },
+      "tuesday_only_signals": {
+        "candidates": 0,
+        "valid": 0,
+        "missing": 0,
+        "all_three_daily_up": 0,
+        "all_three_vs_tuesday": 0,
+        "ever_above_tuesday": 0,
+        "friday_above_tuesday": 0,
+        "all_three_daily_up_rate": null,
+        "all_three_vs_tuesday_rate": null,
+        "ever_above_tuesday_rate": null,
+        "friday_above_tuesday_rate": null
+      },
+      "tuesday_top25": {
+        "candidates": 0,
+        "valid": 0,
+        "missing": 0,
+        "all_three_daily_up": 0,
+        "all_three_vs_tuesday": 0,
+        "ever_above_tuesday": 0,
+        "friday_above_tuesday": 0,
+        "all_three_daily_up_rate": null,
+        "all_three_vs_tuesday_rate": null,
+        "ever_above_tuesday_rate": null,
+        "friday_above_tuesday_rate": null
+      }
+    },
+    "V 底＋酒田買入型態": {
+      "volume_universe": 150,
+      "two_session_signals": {
+        "candidates": 32,
+        "valid": 32,
+        "missing": 0,
+        "all_three_daily_up": 4,
+        "all_three_daily_up_rate": 12.5,
+        "all_three_vs_tuesday": 8,
+        "all_three_vs_tuesday_rate": 25.0,
+        "ever_above_tuesday": 29,
+        "ever_above_tuesday_rate": 90.62,
+        "friday_above_tuesday": 22,
+        "friday_above_tuesday_rate": 68.75
+      },
+      "tuesday_only_signals": {
+        "candidates": 15,
+        "valid": 15,
+        "missing": 0,
+        "all_three_daily_up": 2,
+        "all_three_daily_up_rate": 13.33,
+        "all_three_vs_tuesday": 5,
+        "all_three_vs_tuesday_rate": 33.33,
+        "ever_above_tuesday": 14,
+        "ever_above_tuesday_rate": 93.33,
+        "friday_above_tuesday": 13,
+        "friday_above_tuesday_rate": 86.67
+      },
+      "tuesday_top25": {
+        "candidates": 15,
+        "valid": 15,
+        "missing": 0,
+        "all_three_daily_up": 2,
+        "all_three_daily_up_rate": 13.33,
+        "all_three_vs_tuesday": 5,
+        "all_three_vs_tuesday_rate": 33.33,
+        "ever_above_tuesday": 14,
+        "ever_above_tuesday_rate": 93.33,
+        "friday_above_tuesday": 13,
+        "friday_above_tuesday_rate": 86.67
+      }
+    }
+  }
+}
+Visual false-positive case check: {"最近兩根": {"total": 3, "focus_hits": []}, "最近五根且週低": {"total": 8, "focus_hits": []}}
