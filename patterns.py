@@ -31,9 +31,6 @@ class Signal:
     sma20: float
     explanation: str
     stage: str
-    pivot_date: str = ""
-    pivot_volume_ratio: float = 0.0
-    two_day_volume_ratio: float = 0.0
 
     def as_dict(self):
         return asdict(self)
@@ -158,16 +155,13 @@ def _hammer_at(o, h, l, c, idx: int) -> bool:
     if not _is_hammer_shape(op, hi, lo, cl):
         return False
     prior_down = c[end-1] < c[end-8] * .988
+    prior_up = c[end-1] > c[end-8] * 1.012
     low20 = float(np.min(l[end-20:end]))
     low30 = float(np.min(l[end-30:end]))
     high30 = float(np.max(h[end-30:end]))
-    # IMPORTANT: A decline alone does not establish that the hammer formed
-    # AT a bottom. Require the hammer's LOW near the lower edge of the
-    # completed previous trading range, without inspecting future candles.
-    low_position = (lo-low30) / max(1e-8, high30-low30)
-    near_actual_low = lo <= low20*1.025 or low_position <= .20
-    preceding_retreat = prior_down or c[end-1] < np.max(c[end-10:end])* .965
-    return bool(near_actual_low and preceding_retreat)
+    pos = (cl-low30) / max(1e-8, high30-low30)
+    return bool(prior_down or ((lo <= low20*1.035 or pos <= .33)
+                               and not prior_up))
 
 
 def _multi_test_reversal(h, l, c):
@@ -260,207 +254,8 @@ def _rising_channel_breakout(o, h, l, c):
     return None
 
 
-# The active scanner uses exactly the most recent 21 completed bars for
-# BOTH daily and weekly signals. Three shapes are independent OR candidates.
-V21_CATEGORIES = {"V底槌頭", "V底長下影", "V底三K反轉"}
-# Only Sakata BOTTOM-REVERSAL buy patterns. Rising Three Methods is an
-# upward-trend continuation pattern, not a newly forming V-shaped bottom.
-SAKATA_BUY_CATEGORIES = {"酒田三川晨星", "酒田紅三兵"}
-BREAKOUT21_CATEGORIES = {"整理轉強突破"}
-ACTIVE21_CATEGORIES = V21_CATEGORIES | SAKATA_BUY_CATEGORIES | BREAKOUT21_CATEGORIES
-
-
-def _v21_patterns_at(df: pd.DataFrame, enabled_categories):
-    """Confirmed BOTTOM reversals only, within the last 21 completed bars.
-
-    The final bar MUST confirm a previous bottom. The first hammer is not
-    a buy entry by itself. No next-day candle can be used before it exists.
-    Returns only bottom-side events; no top, no pure continuation patterns.
-    """
-    allowed = ACTIVE21_CATEGORIES.intersection(enabled_categories)
-    if not allowed or len(df) < 21:
-        return []
-    w = df.tail(21)
-    op = w.open.to_numpy(dtype=float)
-    hi = w.high.to_numpy(dtype=float)
-    lo = w.low.to_numpy(dtype=float)
-    cl = w.close.to_numpy(dtype=float)
-    vol = w.shares.to_numpy(dtype=float)
-    results = []
-
-    def true_bottom(pivot):
-        # Price must approach the 21-bar LOW and have meaningfully fallen
-        # beforehand. Unlike a mere one-day gap-down this includes context.
-        if pivot < 10:
-            return False
-        floor = float(np.min(lo[:pivot]))
-        ceiling = float(np.max(hi[:pivot]))
-        low_at_base = (lo[pivot] <= floor*1.035 or
-                       (lo[pivot]-floor)/max(ceiling-floor, 1e-8) <= .18)
-        previous = cl[:pivot]
-        recent = float(np.mean(previous[-3:]))
-        older = float(np.mean(previous[-9:-5]))
-        declined = (recent < older*.975 and
-                    float(previous[-1]) < float(np.max(previous[-10:]))*.97)
-        return bool(low_at_base and declined)
-
-    def confirmed(pivot, final=20):
-        # Requires a genuinely bullish, FINISHED recovery bar. Strong close
-        # reclaims the prior candle's body top and is at least 1% higher
-        # than the pivot close while not setting a lower low.
-        span = max(float(hi[final]-lo[final]), 1e-8)
-        positive = (cl[final] > op[final] and
-                    (cl[final]-op[final])/span >= .30)
-        reclaim = (cl[final] >= max(op[pivot], cl[pivot]) and
-                   cl[final] >= cl[pivot]*1.01 and
-                   cl[final] >= hi[pivot]*.975)
-        hold = lo[final] >= lo[pivot] * .998
-        return bool(positive and reclaim and hold)
-
-    # Single-bar hammer or long lower shadow at the pivot, explicitly
-    # confirmed by the NEXT completed bar. The signal date is confirmation,
-    # the pivot date is the previous trading day / completed weekly bar.
-    pivot, final = 19, 20
-    if true_bottom(pivot) and confirmed(pivot, final):
-        geom = _candle_geometry(op[pivot], hi[pivot], lo[pivot], cl[pivot])
-        body = abs(cl[pivot]-op[pivot])
-        lower = min(op[pivot],cl[pivot])-lo[pivot]
-        upper = hi[pivot]-max(op[pivot],cl[pivot])
-        hammer = _is_hammer_shape(op[pivot],hi[pivot],lo[pivot],cl[pivot])
-        lower_shadow = (
-            geom is not None and geom[2] >= .32
-            and lower >= max(body*1.05, upper*1.25)
-        )
-        vol_ratio = float(vol[pivot]/max(np.mean(vol[pivot-5:pivot]),1.))
-        why = (
-            f"{w.date.iloc[pivot]} 形成 21 K 低點，"
-            f"{w.date.iloc[final]} 紅 K 收復上根實體且收高至少 1%，"
-            f"守住底部低點；止跌日量比 {vol_ratio:.2f} 倍。"
-        )
-        if hammer and "V底槌頭" in allowed:
-            results.append(("bottom", "V 底槌頭→隔日確認", 68,
-                            why+"槌頭外形經反彈 K 確認。",
-                            "隔日反彈確認", "V底槌頭"))
-        if lower_shadow and "V底長下影" in allowed:
-            results.append(("bottom", "V 底長下影→隔日確認", 66,
-                            why+"長下影外形經反彈 K 確認。",
-                            "隔日反彈確認", "V底長下影"))
-
-    # 3-candle V turn: strong sell-off, low-price test, then bullish reclaim.
-    # Test both positioning and momentum; a tiny red candle near the bottom
-    # of a downtrend must never be called a successful reversal.
-    a,b,c = 18,19,20
-    body_a = abs(cl[a]-op[a])
-    span_a = max(float(hi[a]-lo[a]),1e-8)
-    span_c = max(float(hi[c]-lo[c]),1e-8)
-    pre_down3 = (cl[a] < cl[a-5]*.975 and cl[a] < op[a])
-    three_turn = (
-        cl[c] > op[c] and (cl[c]-op[c])/span_c >= .45
-        and cl[c] > cl[b]*1.015
-        and cl[c] > max(cl[a],(op[a]+cl[a])/2)
-        and lo[c] >= lo[b]*.998
-    )
-    if ("V底三K反轉" in allowed and true_bottom(b)
-            and pre_down3 and body_a/span_a >= .40 and three_turn):
-        results.append((
-            "bottom", "V 底三 K 反轉確認", 70,
-            f"{w.date.iloc[b]} 近 21 K 低點；"
-            f"{w.date.iloc[c]} 紅 K 收高超過前一根至少 1.5%，"
-            "且收復前段黑 K，守住底部低點。",
-            "三 K 反轉確認", "V底三K反轉"))
-
-    # Sakata Morning Star. Restrict to the actual 21-K low and a strong
-    # third-day close. Taiwan-listed stocks do not always gap at open.
-    if "酒田三川晨星" in allowed:
-        body_b = abs(cl[b]-op[b])
-        span_b = max(float(hi[b]-lo[b]),1e-8)
-        star = (
-            pre_down3 and body_a/span_a >= .5
-            and body_b <= body_a*.40 and body_b/span_b <= .40
-            and lo[b] <= lo[a]*1.015 and true_bottom(b)
-        )
-        reclaim = (
-            cl[c] > op[c] and (cl[c]-op[c])/span_c >= .45
-            and cl[c] > (op[a]+cl[a])/2
-            and cl[c] >= cl[b]*1.015 and lo[c] >= lo[b]*.998
-        )
-        if star and reclaim:
-            results.append((
-                "bottom","酒田・三川晨星（底部確認）",72,
-                f"{w.date.iloc[a]} 黑 K、{w.date.iloc[b]} 小實體低檔止跌、"
-                f"{w.date.iloc[c]} 收復前段黑 K 中點並守住低點。",
-                "三 K 反轉確認","酒田三川晨星"))
-
-    # Three red soldiers at an ACTUAL low, after a significant decline.
-    # Reject late-stage rallies that started far above the 21-bar floor.
-    if "酒田紅三兵" in allowed:
-        q,r,t = 18,19,20
-        soldiers = all(cl[z] > op[z] for z in (q,r,t))
-        advancing = (cl[q] < cl[r] < cl[t] and
-                     cl[t] > hi[r] and
-                     cl[t] >= cl[q]*1.03)
-        bodies = [cl[z]-op[z] for z in (q,r,t)]
-        balanced = (min(bodies) > 0 and max(bodies) <= min(bodies)*3.5)
-        started_at_low = true_bottom(q)
-        if soldiers and advancing and balanced and started_at_low:
-            results.append((
-                "bottom","酒田・赤三兵（底部確認）",69,
-                f"{w.date.iloc[q]} 起點位於 21 K 底部，"
-                f"{w.date.iloc[t]} 三根紅 K 收盤階梯上移、"
-                "第三根突破第二根最高價。",
-                "三紅 K 反彈確認","酒田紅三兵"))
-    # B track: pullback/consolidation followed by an actual bullish close
-    # above the previous three bars' highs, on expanding trading volume.
-    # It does NOT claim to be a fresh V bottom. Three bullish candles are
-    # an additional descriptive confirmation, not a necessary condition.
-    if "整理轉強突破" in allowed:
-        t = 20
-        high3 = float(np.max(hi[t-3:t]))
-        avg5 = float(np.mean(vol[t-5:t]))
-        last_body = cl[t]-op[t]
-        last_range = max(float(hi[t]-lo[t]),1e-8)
-        last_close_position = (cl[t]-lo[t])/last_range
-        recent_pullback = (
-            cl[t-4] < cl[t-5] or cl[t-3] < cl[t-4]
-            or cl[t-2] < cl[t-3]
-        )
-        preceding_consolidation = (
-            (float(np.max(cl[t-5:t])-np.min(cl[t-5:t])) /
-             max(float(np.mean(cl[t-5:t])),1e-8)) <= .13
-        )
-        price_breakout = (cl[t] > high3
-                          and cl[t] > cl[t-1]*1.012
-                          and last_body/last_range >= .38
-                          and last_close_position >= .68)
-        volume_breakout = avg5 > 0 and vol[t] >= avg5*1.10
-        # Do not flag a breakout while fresh lows are still being made.
-        intact_short_support = (
-            lo[t] >= float(np.min(lo[t-5:t]))*.995
-            and cl[t] > float(np.mean(cl[t-3:t]))
-        )
-        red_three = (all(cl[k] > op[k] for k in (18,19,20))
-                     and cl[18] < cl[19] < cl[20])
-        if (recent_pullback and preceding_consolidation
-                and price_breakout and volume_breakout
-                and intact_short_support):
-            note = (
-                f"{w.date.iloc[-1]} 整理後紅 K 收 {cl[t]:.2f}，"
-                f"突破前三根最高價 {high3:.2f}；"
-                f"量能為前五根均量 {vol[t]/avg5:.2f} 倍。"
-                + ("連續三根紅 K 漸進收高。" if red_three else
-                   "確認向上突破整理區。")
-                + "這是 B 類突破候選，不屬於 A 類 V 底。"
-            )
-            results.append((
-                "bottom","B｜整理後轉強突破",69 if red_three else 65,
-                note,"放量突破確認","整理轉強突破"))
-    return results
-
-
 def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windows=(20,52)):
     """Pattern tuples (side,name,base_score,reason,stage) for the FINAL bar."""
-    if len(df) >= 21 and ACTIVE21_CATEGORIES.intersection(enabled_categories):
-        return _v21_patterns_at(df, enabled_categories)
     if len(df) < 32:
         return []
     a = df[['open','high','low','close','shares','turnover']].to_numpy(dtype=float)
@@ -479,93 +274,13 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
     prior_up = c[-2] > c[-9] * 1.012
     # Do not call a tall upper shadow a top in the middle of an obvious fall,
     # or a long lower shadow a bottom amid an established rise.
-    # Distinguish "price has fallen" from "this pattern is AT the low".
-    # Use the signal bar's low (not its close) to find the bottom zone.
-    low_position = (lo-r30_low) / max(1e-8, r30_high-r30_low)
-    true_bottom_zone = lo <= r20_low*1.025 or low_position <= .20
-    near_bottom = true_bottom_zone and (prior_down or
-                   c[-2] < float(np.max(c[-11:-1]))*.965)
+    near_bottom = prior_down or ((lo <= r20_low*1.035 or pos <= .33) and not prior_up)
     near_top = prior_up or ((hi >= r20_high*.965 or pos >= .67) and not prior_down)
     res = []
     allowed = set(enabled_categories)
     def add(side, label, score, reason, stage="已確認", category="K 棒反轉"):
         if category in allowed:
             res.append((side, label, score, reason, stage, category))
-    # Three independent V-bottom signals. The screen date is T, the
-    # bottom bar is T-2, and the first recovery is T-1. T is observation
-    # day and is NEVER used to validate the earlier signal. All comparisons
-    # are point-in-time; no future trading bars are inspected.
-    v_categories = {"V型反轉", "V底K棒", "V底放量"}
-    if allowed.intersection(v_categories) and len(c) >= 35:
-        pivot = len(c)-3
-        rebound = len(c)-2
-        p_open,p_high,p_low,p_close = (
-            float(o[pivot]),float(h[pivot]),float(l[pivot]),float(c[pivot]))
-        r_open,r_low,r_close = (
-            float(o[rebound]),float(l[rebound]),float(c[rebound]))
-        # Bottom must be in the lower part of the recent 12-bar price range,
-        # preceded by falling closes. Do not require an exact 20-bar new low.
-        prior_low = float(np.min(l[pivot-12:pivot]))
-        prior_high = float(np.max(h[pivot-12:pivot]))
-        low_zone = (p_low <= prior_low*1.035
-                    or (p_low-prior_low)/max(prior_high-prior_low,1e-8) <= .22)
-        down_to_bottom = (
-            float(c[pivot-1]) < float(c[pivot-6])*.99
-            or float(c[pivot-1]) < float(np.max(c[pivot-9:pivot]))*.955
-        )
-        # Second completed bar closes higher; it should not break the
-        # bottom decisively. This establishes the first leg of a potential V.
-        next_higher_close = r_close > p_close
-        low_holds = r_low >= p_low*.985
-        rebound_confirmed = next_higher_close and low_holds
-        # 1. Price-based V: meaningful reversal from a recently lower close.
-        prior_pressure = p_close < float(c[pivot-1]) or p_low < float(l[pivot-1])
-        v_price = (down_to_bottom and low_zone and prior_pressure
-                   and rebound_confirmed
-                   and r_close > float(c[pivot-1])*.985)
-        # 2. Shape-based V: lower tail / hammer OR a convincing real body
-        # at the local bottom, followed by a higher close on day 2.
-        geometry = _candle_geometry(p_open,p_high,p_low,p_close)
-        lower_tail = min(p_open,p_close)-p_low
-        upper_tail = p_high-max(p_open,p_close)
-        body = abs(p_close-p_open)
-        candle_range = max(p_high-p_low,1e-8)
-        hammer_shape = _is_hammer_shape(p_open,p_high,p_low,p_close)
-        lower_wick_shape = (geometry is not None
-                            and geometry[2] >= .30
-                            and lower_tail >= body*.9
-                            and lower_tail > upper_tail*1.1)
-        solid_body_shape = (p_close > p_open
-                            and body/candle_range >= .46
-                            and (p_close-p_low)/candle_range >= .65)
-        v_candle = (down_to_bottom and low_zone and rebound_confirmed
-                    and (hammer_shape or lower_wick_shape or solid_body_shape))
-        # 3. Volume-based V: the bottom day's trading volume expands over
-        # the preceding five COMPLETE bars; the first higher close confirms
-        # that the large volume occurred near a genuine local pivot.
-        previous_five_avg = float(np.mean(shares[pivot-5:pivot]))
-        bottom_volume = float(shares[pivot])
-        vol_ratio = bottom_volume/max(previous_five_avg,1.0)
-        v_volume = (down_to_bottom and low_zone and rebound_confirmed
-                    and previous_five_avg > 0 and vol_ratio >= 1.25)
-        date_bottom = str(df.date.iloc[pivot])
-        date_recovery = str(df.date.iloc[rebound])
-        base_note = (f"底部 {date_bottom}：低點 {p_low:.2f}；"
-                     f"{date_recovery} 首次收高至 {r_close:.2f}。")
-        if v_price:
-            add("bottom", "V 型價格反轉", 61,
-                base_note+"下跌後探低、次日收高且收復部分跌幅；屬反彈觀察。",
-                "次日收高", category="V型反轉")
-        if v_candle:
-            shape_label = ("槌頭棒" if hammer_shape else
-                           "長下影" if lower_wick_shape else "實體紅 K")
-            add("bottom", "V 底 K 棒轉強", 62,
-                base_note+f"底部出現{shape_label}，次日收高；屬形態觀察。",
-                "次日收高", category="V底K棒")
-        if v_volume:
-            add("bottom", "V 底放量轉強", 60,
-                base_note+f"底部成交量達前五期均量 {vol_ratio:.2f} 倍；屬量價觀察。",
-                "量增／次日收高", category="V底放量")
     # Day 1: hammer. Day 2: bullish candle CLOSES above the hammer's
     # entire high by 0.3%. The signal is available as soon as day-2 EOD data
     # is published, so users can review it on the morning of trading day 3.
@@ -582,31 +297,6 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
                 f"{hammer_high:.2f} 元 0.3% 以上{volume_note}；"
                 "供下一交易日觀察，尚未代表後續一定上漲",
                 "隔日突破已確認", category="錘頭隔日突破")
-    # Early low-day rebound, including open==low candles with NO lower wick.
-    # 2383 on 2026-11-06: O=L=3690, H=3920, C=3820, prior close=4100.
-    # This is NOT a classic doji/hammer. Label distinctly and date the
-    # signal on the actual low-day candle (no next-day confirmation needed).
-    if "低檔開低收回" in allowed and len(c) >= 35:
-        prior_close = float(c[-2])
-        day_span = float(hi-lo)
-        day_close_location = (float(cl)-float(lo)) / max(day_span, 1e-8)
-        gap_down = op < prior_close*.985
-        breakdown_open = op <= float(l[-2])*.997
-        intraday_rebound = (
-            day_span > 0 and cl > op
-            and day_close_location >= .53
-            and cl >= lo + day_span*.53
-        )
-        fresh_test = lo <= float(np.min(l[-21:-1]))*1.007
-        decline_into_test = (prior_down or
-                             c[-2] <= float(np.max(c[-11:-1]))*.94)
-        if (true_bottom_zone and fresh_test and decline_into_test
-                and intraday_rebound and (gap_down or breakdown_open)):
-            add("bottom", "低檔開低收回", 67,
-                f"跳空／破低開盤後，盤中探至 {lo:.2f}，"
-                f"收盤回升至 {cl:.2f}；位於近 20 期低點區。"
-                "這是低檔反彈候選，不是十字星或槌頭，也不代表必然續漲",
-                "訊號當根／提前觀察", category="低檔開低收回")
     # User-marked chart examples (2834 / 1802 / 6269 / 3019):
     # select the rejection candle ITSELF rather than a later breakout.
     # A single candle with meaningful rejection from a recent low or moving-
@@ -704,8 +394,25 @@ def _patterns_at(df: pd.DataFrame, enabled_categories=("K 棒反轉",), ma_windo
         add("top", "流星線／長上影", 37, "上影線明顯長於實體，收盤回到區間下半部")
     # Shape-first doji: evaluate the actual cross structure with both
     # upper and lower shadows. The trend/near-low context stays unchanged.
-    # Doji-family signals are removed from screening by user request.
-    # Keep the shape helper for possible debugging; emit no doji categories.
+    is_doji = _is_regular_doji(op, hi, lo, cl)
+    dragonfly = _is_hammer_shape(op, hi, lo, cl) and body < span*.12
+    gravestone = _is_hammer_shape(op, hi, lo, cl, inverted=True) and body < span*.12
+    if dragonfly and near_bottom and prior_down:
+        add("bottom", "蜻蜓十字星", 42,
+            "低檔出現單側長下影十字型，與上下影線均有的多頭十字星分開判斷",
+            "提前預警")
+    if gravestone and near_top and prior_up:
+        add("top", "墓碑十字星", 42,
+            "高檔出現單側長上影十字型，與一般十字星分開判斷",
+            "提前預警")
+    if is_doji and near_bottom and prior_down:
+        add("bottom", "多頭十字星", 35,
+            "低檔小實體且上下影線清楚的十字形 K 棒；屬提前觀察",
+            "提前觀察", category="多頭十字星")
+    if is_doji and near_top and prior_up:
+        add("top", "空頭十字星", 31,
+            "高檔小實體且上下影線清楚的十字形 K 棒；屬提前觀察",
+            "提前預警")
     if _is_hammer_shape(op, hi, lo, cl, inverted=True) and near_bottom and prior_down:
         add("bottom", "倒錘子線", 34,
             "下跌後出現小實體與長上影，仍待下一根確認", "提前預警")
@@ -963,9 +670,7 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
            ma_windows=(20,52), hammer_only_bottom: bool = False,
            min_history_bars: int = 65, daily_liquidity: dict | None = None,
            require_above_ma5: bool = False,
-           require_all_signals: bool = False,
-           top_volume_n: int | None = None,
-           require_week_low: bool = False):
+           require_all_signals: bool = False):
     """Returns (bottom dataframe, top dataframe, diagnostics, selected price dataframe).
 
     No substitution of unqualified stocks to reach 25; displays fewer if necessary.
@@ -976,16 +681,6 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
         raise ValueError("請至少選取一種搜尋目標")
     data = data[data.code.isin(companies.keys()) & (data.date <= as_of)].copy()
     data = data.sort_values(["code","date"])
-    # Rank the entire listed-stock universe by ACTUAL SHARES traded on
-    # the effective scan bar. A weekly search ranks complete weekly volumes.
-    # A stock needs a valid bar on that date to enter the top-150 universe.
-    volume_rank = {}
-    if top_volume_n is not None:
-        newest = data[data.date == as_of].copy()
-        newest = newest[(newest.shares > 0) & newest.code.isin(companies)]
-        newest = newest.sort_values(["shares","code"],ascending=[False,True])
-        volume_rank = {code: n+1 for n,code in enumerate(
-            newest.code.astype(str).head(top_volume_n))}
     result = {"bottom":[], "top":[]}
     covered, liquid, with_patterns = 0, 0, 0
     for code, grp in data.groupby('code', sort=False):
@@ -993,8 +688,6 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
         if len(grp) < min_history_bars or str(grp.date.iloc[-1]) != as_of:
             continue
         covered += 1
-        if top_volume_n is not None and code not in volume_rank:
-            continue
         if daily_liquidity is not None:
             if code not in daily_liquidity:
                 continue
@@ -1014,77 +707,13 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
             continue
         liquid += 1
         code_signals = 0
-        # The main setup always uses pivot at scan day -2 and
-        # confirmation at scan day -1, even if the optional lookback
-        # dropdown for unrelated patterns is set to 1.
-        # V setups are evaluated on T-2 and T-1, with the selected
-        # search-date bar T used only to display the results.
-        v_targets = {"V型反轉", "V底K棒", "V底放量"}
-        max_age_count = max(signal_days, 1)
-        # For a two-bar signal lookback, at least 22 total bars are
-        # required to supply a complete 21-bar pattern window at age=1.
-        history_lookback = (21 if ACTIVE21_CATEGORIES.intersection(enabled_categories)
-                            else min_history_bars)
-        for age in range(min(max_age_count, len(grp)-history_lookback+1)):
+        for age in range(min(signal_days, len(grp)-min_history_bars+1)):
             i = len(grp) - 1 - age
             partial = grp.iloc[:i+1]
             for side, name, base, reason, stage, category in _patterns_at(
                     partial, enabled_categories=enabled_categories, ma_windows=ma_windows):
-                # Main strategy uses candle scan-day -2 and confirms at
-                # scan-day -1; all other pattern categories retain their
-                # user-selected lookback number of completed bars.
-                if category in ACTIVE21_CATEGORIES:
-                    if age >= signal_days:
-                        continue
-                elif category in v_targets:
-                    if age != 0:
-                        continue
-                elif age >= signal_days:
-                    continue
-                # The daily week-low option requires the actual reversal
-                # bar to be the lowest LOW of the most recent five completed
-                # trading days, not merely of the five bars before the pivot.
-                # For weekly bars, signal_days=1 already limits signals to
-                # the latest completed weekly candle; a three-K setup can
-                # have its bottom in the preceding weekly candle.
-                if require_week_low and category in V21_CATEGORIES:
-                    if signal_days == 5:
-                        pivot_i = i-1
-                        first_recent = len(grp)-5
-                        if pivot_i < first_recent:
-                            continue
-                        current_week_low = float(grp.low.iloc[first_recent:].min())
-                        if float(grp.low.iloc[pivot_i]) > current_week_low + 1e-8:
-                            continue
-                # Week-low filter for Sakata reversals only; a rising three
-                # methods pattern is trend continuation, not a fresh low.
-                if require_week_low and category in SAKATA_BUY_CATEGORIES:
-                    if signal_days == 5:
-                        pivot_i = i-1 if category == "酒田三川晨星" else i-2
-                        first_recent = len(grp)-5
-                        if pivot_i < first_recent:
-                            continue
-                        if float(grp.low.iloc[pivot_i]) > float(grp.low.iloc[first_recent:].min()) + 1e-8:
-                            continue
-                # Historical patterns remain visible for at most the
-                # configured lookback. A subsequent bar cannot break below
-                # the pivot or reverse into renewed selling.
-                if category in ACTIVE21_CATEGORIES and age > 0:
-                    if category in BREAKOUT21_CATEGORIES:
-                        # Once a breakout fails its own close/support,
-                        # don't keep showing it as a fresh candidate.
-                        if (float(grp.close.iloc[-1])
-                                < float(grp.close.iloc[i])*.985):
-                            continue
-                    else:
-                        low_i = (i-2 if category == "酒田紅三兵"
-                                 else i-1)
-                        if (float(grp.low.iloc[i+1:].min())
-                                < float(grp.low.iloc[low_i])*.998
-                                or float(grp.close.iloc[-1])
-                                < float(grp.close.iloc[i])*.985):
-                            continue
-                # Other breakout signals keep their prior timing.
+                # Show this breakout only when it is the most recent
+                # completed trading day, ready for next-session review.
                 if name in ("錘頭隔日突破・第三日觀察",
                             "低點止跌後突破") and age != 0:
                     continue
@@ -1104,50 +733,17 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
                     score = min(100, score + 12)
                 prev_close = float(grp.close.iloc[-2]) if len(grp) > 1 else float(grp.close.iloc[-1])
                 pct = (grp.close.iloc[-1] / prev_close-1)*100 if prev_close else 0
-                low_day_i = (-1 if category in BREAKOUT21_CATEGORIES else
-                             i-2 if category == "酒田紅三兵" else
-                             i-1 if category in ACTIVE21_CATEGORIES else
-                             i-2 if category in v_targets else -1)
-                low_day_ratio = (
-                    float(grp.shares.iloc[low_day_i])
-                    / max(float(grp.shares.iloc[low_day_i-5:low_day_i].mean()), 1.)
-                    if low_day_i >= 5 else 0.0
-                )
-                # Do not read a future bar if a hammer/long-lower-wick
-                # appears on today's latest completed candle.
-                combined_volume_ratio = (
-                    (float(grp.shares.iloc[low_day_i])
-                     + float(grp.shares.iloc[low_day_i+1])) / 2
-                    / max(float(grp.shares.iloc[low_day_i-5:low_day_i].mean()), 1.)
-                    if low_day_i >= 5 and low_day_i + 1 < len(grp)
-                    else 0.0
-                )
                 signal = Signal(
                     side=side, category=category, code=code, name=companies.get(code, grp['name'].iloc[-1]),
-                    pattern=name,
-                    signal_date=(str(grp.date.iloc[i-1])
-                                 if category in v_targets else str(grp.date.iloc[i])),
-                    age=(1 if category in v_targets else age),
+                    pattern=name, signal_date=str(grp.date.iloc[i]), age=age,
                     score=score, close=round(float(grp.close.iloc[-1]),2),
                     change_pct=round(pct,2), volume_lots=int(grp.shares.iloc[-1]//1000),
                     avg_volume_lots=int(vols//1000), avg_turnover_100m=round(float(turns)/1e8,2),
                     volume_ratio=round(float(ratio),2),
                     sma20=round(float(grp.close.tail(20).mean()),2),
                     explanation=reason, stage=stage,
-                    pivot_date=str(grp.date.iloc[low_day_i]) if low_day_i >= 5 else "",
-                    pivot_volume_ratio=round(low_day_ratio, 2),
-                    two_day_volume_ratio=round(combined_volume_ratio, 2),
                 )
-                signal_payload = signal.as_dict()
-                signal_payload["search_track"] = (
-                    "B｜整理後轉強突破" if category in BREAKOUT21_CATEGORIES
-                    else "A｜V 型底部反彈" if category in (
-                        V21_CATEGORIES | SAKATA_BUY_CATEGORIES)
-                    else "其他")
-                if top_volume_n is not None:
-                    signal_payload["volume_rank"] = volume_rank[code]
-                result[side].append(signal_payload)
-                continue
+                result[side].append(signal.as_dict())
         if code_signals:
             with_patterns += 1
     final = []
@@ -1198,7 +794,6 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
                 frame.insert(0, "rank", np.arange(1, len(frame) + 1))
         final.append(frame)
     diag = {"covered": covered, "liquid": liquid, "matched":with_patterns, "listed":len(companies),
-            "volume_universe":len(volume_rank) if top_volume_n is not None else None,
             "bottom_candidates":len(result['bottom']),"top_candidates":len(result['top'])}
     # The UI needs price bars only for the displayed Top 25 charts.
     selected_codes = set()
