@@ -676,17 +676,17 @@ with search_panel:
         index=0, horizontal=True,
         help='最近一週：日 K 查看最近 5 個交易日內形成的 V 底低點；週 K 查看最新完成的一週。')
     require_week_low = scan_period == '最近一週低點'
-    st.caption('選取的買入型態任一符合即可列入；「最近一週低點」只保留低檔反轉型態。')
-    pick_hammer = st.checkbox('槌頭線', value=True,
-        help='21 根 K 底部區，實體短、下影明顯長。')
-    pick_lower = st.checkbox('長下影線', value=True,
-        help='21 根 K 底部區，盤中探低後收回、下影明顯。')
+    st.caption('只找真正的底部反彈：先到 21 K 低位，再有下一根已收盤紅 K 反彈確認；單根下影不直接入選。符合任一型態即可。')
+    pick_hammer = st.checkbox('槌頭線＋下一 K 反彈', value=True,
+        help='真正落在 21 根 K 的底部，槌頭隔一根已完成紅 K 收高至少 1%，守住低點，才列入。')
+    pick_lower = st.checkbox('長下影＋下一 K 反彈', value=True,
+        help='下影線在底部，下一根已完成紅 K 收復前根實體並守住低點；只出現長下影但仍連跌不合格。')
     pick_3k = st.checkbox('三 K 棒 V 底反轉', value=True,
-        help='三根 K 棒先探低，第三根紅 K 收復部分跌幅。')
+        help='下跌至 21 K 低點後，第三根 K 必須紅 K 放大實體、守住低點且明顯收高。')
     st.markdown('**酒田戰法（只搜尋買入訊號）**')
     pick_sakata = st.checkbox(
-        '加入酒田多頭型態', value=False,
-        help='加選三川晨星、赤三兵、上升三法；不包含三山頂、黑三兵等賣出型態。上升三法屬趨勢延續，不一定是低點；最近一週低點模式會排除這種非低檔型態。')
+        '加入酒田底部反轉買入型態', value=False,
+        help='只增加底部三川晨星、低檔赤三兵。上升三法屬多頭延續而非低檔反轉，已排除。')
     targets = []
     if pick_hammer:
         targets.append('V底槌頭')
@@ -695,7 +695,7 @@ with search_panel:
     if pick_3k:
         targets.append('V底三K反轉')
     if pick_sakata:
-        targets.extend(['酒田三川晨星', '酒田紅三兵', '酒田上升三法'])
+        targets.extend(['酒田三川晨星', '酒田紅三兵'])
     require_all_signals = False
     signal_days = (5 if timeframe == 'D' else 1) if require_week_low else 2
     ma_windows = [5,10,20,52]
@@ -779,7 +779,7 @@ if 'results' in st.session_state:
         st.markdown('''
 **判斷型態**
 
-- **底部預設：** 日 K／週 K 均以 21 根 K 判斷、查詢日成交量前 150 大為範圍。V 底槌頭、長下影、三 K 棒各自獨立。酒田戰法可選三川晨星、赤三兵、上升三法等**多頭買入候選**，不包含賣出型態。
+- **底部預設：** 以 21 根 K 為背景，槌頭、長下影必須在低點且有下一根完整紅 K 收高確認；三 K、酒田晨星與赤三兵也必須完成低點反轉。只符合一根下影但仍下跌者不入選。酒田上升三法屬趨勢延續，已移除。
 - **組合方式：** 三類訊號各自獨立，符合任一種即可。前 150 大以查詢日的成交股數排名，週 K 依最新完整週成交股數排名。最低／最高股價可自行設定。
 - **搜尋面板：** 取消舊的 20 日均量與每日成交金額下限，改用前 150 大成交量；保留股價區間。
 - **頂部訊號：** 此版專注 V 型底部候選，暫不顯示頂部候選空榜單。
