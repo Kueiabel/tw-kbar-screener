@@ -683,6 +683,11 @@ with search_panel:
         help='下影線在底部，下一根已完成紅 K 收復前根實體並守住低點；只出現長下影但仍連跌不合格。')
     pick_3k = st.checkbox('三 K 棒 V 底反轉', value=True,
         help='下跌至 21 K 低點後，第三根 K 必須紅 K 放大實體、守住低點且明顯收高。')
+    st.markdown('**B｜整理後轉強突破（獨立搜尋）**')
+    pick_breakout = st.checkbox(
+        '整理後紅 K 放量突破', value=True,
+        help='整理或小幅回檔後，以已完成紅 K 收盤突破前三根最高價、量能高於前五根均量至少 10%；不需符合 A 類 21 K 絕對低點。')
+    st.caption('B 類與 A 類分開辨識：中信金這類短線整理後突破可列入，但持續破低、沒有紅 K 確認的不列入。')
     st.markdown('**酒田戰法（只搜尋買入訊號）**')
     pick_sakata = st.checkbox(
         '加入酒田底部反轉買入型態', value=False,
@@ -694,6 +699,8 @@ with search_panel:
         targets.append('V底長下影')
     if pick_3k:
         targets.append('V底三K反轉')
+    if pick_breakout:
+        targets.append('整理轉強突破')
     if pick_sakata:
         targets.extend(['酒田三川晨星', '酒田紅三兵'])
     require_all_signals = False
@@ -744,7 +751,8 @@ if 'results' in st.session_state:
         unsafe_allow_html=True)
     v_only = set(r['criteria'].get('targets', [])).issubset(
         {'V底槌頭', 'V底長下影', 'V底三K反轉',
-         '酒田三川晨星', '酒田紅三兵'})
+         '酒田三川晨星', '酒田紅三兵',
+         '整理轉強突破'})
     stats = [
         ('台灣上市可分析', r['diag']['covered'], '檔'),
         ('成交量前 150 大', r['diag'].get('volume_universe') or 0, '檔'),
@@ -780,7 +788,7 @@ if 'results' in st.session_state:
         st.markdown('''
 **判斷型態**
 
-- **底部預設：** 以 21 根 K 為背景，槌頭、長下影必須在低點且有下一根完整紅 K 收高確認；三 K、酒田晨星與赤三兵也必須完成低點反轉。只符合一根下影但仍下跌者不入選。酒田上升三法屬趨勢延續，已移除。
+- **搜尋雙軌：** A「V 型底部反彈」仍需 21 K 低檔與下一根反彈 K 確認；B「整理後轉強突破」獨立選股，短線整理後放量紅 K 收盤突破前三根高點，不需符合 A 類底部低點限制。兩者符合任一就列入，股票卡會明確標示 A/B。
 - **組合方式：** 三類訊號各自獨立，符合任一種即可。前 150 大以查詢日的成交股數排名，週 K 依最新完整週成交股數排名。最低／最高股價可自行設定。
 - **搜尋面板：** 取消舊的 20 日均量與每日成交金額下限，改用前 150 大成交量；保留股價區間。
 - **頂部訊號：** 此版專注 V 型底部候選，暫不顯示頂部候選空榜單。
