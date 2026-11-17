@@ -1,0 +1,52 @@
+test_missing_friday_bar_excluded_from_denominator (test_acceptance_backtest.AcceptanceBacktestTests.test_missing_friday_bar_excluded_from_denominator) ... ok
+test_missing_required_market_date_is_error (test_acceptance_backtest.AcceptanceBacktestTests.test_missing_required_market_date_is_error) ... ok
+test_three_separate_performance_definitions (test_acceptance_backtest.AcceptanceBacktestTests.test_three_separate_performance_definitions) ... ok
+test_morning_star_bullish_only (test_bottom_reversal.SakataBuyOnlyTests.test_morning_star_bullish_only) ... ok
+test_no_bearish_sakata_results (test_bottom_reversal.SakataBuyOnlyTests.test_no_bearish_sakata_results) ... ok
+test_rising_three_methods_continuation (test_bottom_reversal.SakataBuyOnlyTests.test_rising_three_methods_continuation) ... ok
+test_sakata_optional_does_not_change_v_default (test_bottom_reversal.SakataBuyOnlyTests.test_sakata_optional_does_not_change_v_default) ... ok
+test_three_red_soldiers (test_bottom_reversal.SakataBuyOnlyTests.test_three_red_soldiers) ... ok
+test_21_k_bars_eligible (test_bottom_reversal.V21Tests.test_21_k_bars_eligible) ... FAIL
+test_gigabyte_like_continued_slide_is_excluded (test_bottom_reversal.V21Tests.test_gigabyte_like_continued_slide_is_excluded) ... ok
+test_hammer_in_last_two_bars (test_bottom_reversal.V21Tests.test_hammer_in_last_two_bars) ... FAIL
+test_lower_wick_in_last_two_bars (test_bottom_reversal.V21Tests.test_lower_wick_in_last_two_bars) ... ok
+test_no_v_shape (test_bottom_reversal.V21Tests.test_no_v_shape) ... ok
+test_pivot_hammer_with_weak_next_red_is_excluded (test_bottom_reversal.V21Tests.test_pivot_hammer_with_weak_next_red_is_excluded) ... ok
+test_price_range_filter_unchanged (test_bottom_reversal.V21Tests.test_price_range_filter_unchanged) ... ok
+test_signal_three_bars_ago_is_excluded (test_bottom_reversal.V21Tests.test_signal_three_bars_ago_is_excluded) ... FAIL
+test_three_bar_reversal_completed_recently (test_bottom_reversal.V21Tests.test_three_bar_reversal_completed_recently) ... ok
+test_top_volume_150_is_actual_rank (test_bottom_reversal.V21Tests.test_top_volume_150_is_actual_rank) ... ok
+test_unconfirmed_latest_hammer_is_excluded (test_bottom_reversal.V21Tests.test_unconfirmed_latest_hammer_is_excluded) ... ok
+test_week_low_scan_respects_top_150 (test_bottom_reversal.V21Tests.test_week_low_scan_respects_top_150) ... ok
+test_week_window_detects_earlier_v_bottom (test_bottom_reversal.V21Tests.test_week_window_detects_earlier_v_bottom) ... ok
+test_week_window_rejects_if_another_day_is_lower (test_bottom_reversal.V21Tests.test_week_window_rejects_if_another_day_is_lower) ... ok
+
+======================================================================
+FAIL: test_21_k_bars_eligible (test_bottom_reversal.V21Tests.test_21_k_bars_eligible)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/runner/work/tw-kbar-screener/tw-kbar-screener/tests/test_bottom_reversal.py", line 99, in test_21_k_bars_eligible
+    self.assertTrue(b.empty)  # pivot occurred one bar ago: needs 22
+    ^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: False is not true
+
+======================================================================
+FAIL: test_hammer_in_last_two_bars (test_bottom_reversal.V21Tests.test_hammer_in_last_two_bars)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/runner/work/tw-kbar-screener/tw-kbar-screener/tests/test_bottom_reversal.py", line 59, in test_hammer_in_last_two_bars
+    self.assertIn("V 底槌頭線",b.iloc[0]["pattern"])
+AssertionError: 'V 底槌頭線' not found in 'V 底槌頭→隔日確認'
+
+======================================================================
+FAIL: test_signal_three_bars_ago_is_excluded (test_bottom_reversal.V21Tests.test_signal_three_bars_ago_is_excluded)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/runner/work/tw-kbar-screener/tw-kbar-screener/tests/test_bottom_reversal.py", line 77, in test_signal_three_bars_ago_is_excluded
+    self.assertTrue(b.empty)
+AssertionError: False is not true
+
+----------------------------------------------------------------------
+Ran 22 tests in 0.217s
+
+FAILED (failures=3)
