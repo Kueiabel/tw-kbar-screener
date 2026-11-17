@@ -19,7 +19,6 @@ import requests
 import streamlit as st
 
 from patterns import screen
-from backtest_20261110 import evaluate_acceptance
 from twse_source import ensure_history, load_companies, open_db, today_taiwan
 
 st.set_page_config(page_title="台股 K 棒快速篩選", page_icon="📈", layout="wide", initial_sidebar_state="collapsed")
@@ -238,11 +237,11 @@ def run_stock_scan(opts):
             search_data = info["data"]
             search_date = info["effective_date"]
             liquidity = None
-            required_bars = 21
+            required_bars = 65
             if opts["timeframe"] == "W":
                 search_data, search_date = weekly_bars_from_daily(search_data, search_date)
                 liquidity = daily_liquidity_for_week(info["data"], search_date)
-                required_bars = 21
+                required_bars = 55
             bottom, top, diag, covered = screen(
                 search_data, companies, search_date,
                 min_vol_lots=opts["min_vol"],
@@ -255,9 +254,7 @@ def run_stock_scan(opts):
                 require_above_ma5=opts["require_above_ma5"],
                 require_all_signals=opts["require_all_signals"],
                 min_history_bars=required_bars,
-                daily_liquidity=liquidity,
-                top_volume_n=150,
-                require_week_low=opts["require_week_low"])
+                daily_liquidity=liquidity)
             for ranking in (bottom, top):
                 if not ranking.empty:
                     ranking["industry"] = ranking["code"].map(
@@ -276,7 +273,6 @@ def run_stock_scan(opts):
                     "min_price": opts["min_price"],
                     "max_price": opts["max_price"],
                     "signal_days": opts["signal_days"],
-                    "require_week_low": opts["require_week_low"],
                     "targets": list(opts["targets"]),
                     "hammer_only_bottom": opts["hammer_only_bottom"],
                     "require_above_ma5": opts["require_above_ma5"],
@@ -287,93 +283,6 @@ def run_stock_scan(opts):
         finally:
             if db is not None:
                 db.close()
-
-
-def run_20261110_acceptance():
-    """Background-only historical test; never runs on routine page load."""
-    pool = _search_pool()
-    with pool["lock"]:
-        db = None
-        try:
-            db = open_db()
-            with requests.Session() as session:
-                companies = load_companies(db, session)
-                # Last observed return day is 11/13; include enough prior
-                # bars to build the 21-K signal as it stood on 11/10.
-                info = ensure_history(
-                    db, session, datetime(2026,11,13).date(), 100,
-                    progress=None, throttle=.75)
-            return evaluate_acceptance(info["data"], companies)
-        finally:
-            if db is not None:
-                db.close()
-
-
-@st.fragment(run_every="2s")
-def show_acceptance_progress():
-    if "acceptance_future" not in st.session_state:
-        return
-    future = st.session_state["acceptance_future"]
-    if future.done():
-        try:
-            st.session_state["acceptance_report"] = future.result()
-            st.session_state.pop("acceptance_error", None)
-        except Exception as exc:
-            st.session_state["acceptance_error"] = str(exc)
-        finally:
-            st.session_state.pop("acceptance_future", None)
-        st.rerun(scope="app")
-    st.info("正在核對官方歷史行情：11/10 的選股名單及 11/11～11/13 的收盤表現。")
-
-
-def render_acceptance_report():
-    report = st.session_state.get("acceptance_report")
-    if report is None:
-        return
-    st.caption("嚴格以 2026/11/10 盤後資料選股、成交量前 150 大；"
-               "不使用 11/11～11/13 的資料產生訊號。")
-    for model, block in report.items():
-        st.markdown("**" + model + "**")
-        mode = st.radio("顯示樣本", ["週二當日完成", "週二已知（含週一）"],
-                        horizontal=True, key="acceptance_mode_"+model)
-        is_exact = mode == "週二當日完成"
-        metrics = block["metrics_exact" if is_exact else "metrics_available"]
-        table = block["finished_tuesday" if is_exact else "available_tuesday"]
-        n = metrics["valid"]
-        st.caption(f"候選 {metrics['candidates']} 檔 · 四天報價齊全 {n} 檔 · "
-                   f"報價不足 {metrics['missing']} 檔")
-        if n:
-            cols = st.columns(2)
-            with cols[0]:
-                st.metric("週三、四、五每天收漲",
-                          f"{metrics['all_three_daily_up_rate']:.1f}%",
-                          help="週三>週二、週四>週三、週五>週四，同時成立")
-                st.metric("三日內曾高於週二",
-                          f"{metrics['ever_above_tuesday_rate']:.1f}%")
-            with cols[1]:
-                st.metric("週五收盤高於週二",
-                          f"{metrics['friday_above_tuesday_rate']:.1f}%")
-                st.metric("三天收盤都高於週二",
-                          f"{metrics['all_three_vs_tuesday_rate']:.1f}%")
-            columns = ["code", "name", "pattern", "signal_date",
-                       "volume_rank", "2026-11-10", "2026-11-11",
-                       "2026-11-12", "2026-11-13",
-                       "週三漲跌%", "週四漲跌%", "週五漲跌%",
-                       "週二至週五%", "連續三天收漲", "週五收盤高於週二"]
-            shown = [x for x in columns if x in table.columns]
-            st.dataframe(table[shown],hide_index=True,use_container_width=True)
-            st.download_button(
-                "下載完整驗收明細 CSV · " + model,
-                table.to_csv(index=False).encode("utf-8-sig"),
-                file_name=("v_sakata_" if "酒田" in model else "v_only_")
-                          + ("exact_" if is_exact else "discovered_")
-                          + "20261110_to_20261113.csv",
-                mime="text/csv", use_container_width=True,
-                key="download_acceptance_"+model+mode)
-        else:
-            st.info("這個設定沒有可計算的完整樣本，不能計算或宣稱勝率。")
-    st.caption("注意：此為歷史盤後價差統計，未計入交易成本、除權息還原及"
-               "歷史上市成分股存活偏差；不等於可實現的買賣報酬。")
 
 
 @st.fragment(run_every="2s")
@@ -395,10 +304,8 @@ def render_waiting_ad():
 
 
 EXPORT_FIELDS = {
-    'rank':'排名','volume_rank':'成交量名次','code':'代號','name':'公司','industry':'產業類別','category':'搜尋類別','pattern':'型態','stage':'階段',
-    'score':'評分','signal_date':'訊號日期','pivot_date':'止跌日期',
-    'pivot_volume_ratio':'止跌日量／前5期均量',
-    'two_day_volume_ratio':'兩日均量／前5期均量','age':'距今交易日',
+    'rank':'排名','code':'代號','name':'公司','industry':'產業類別','category':'搜尋類別','pattern':'型態','stage':'階段',
+    'score':'評分','signal_date':'訊號日期','age':'距今交易日',
     'close':'最新收盤價','change_pct':'當日漲跌幅(%)','volume_lots':'當日成交量(張)',
     'avg_volume_lots':'20日均量(張)','avg_turnover_100m':'20日均成交金額(億元)',
     'volume_ratio':'訊號日量比','sma20':'20日均線',
@@ -428,9 +335,7 @@ def to_csv(frame: pd.DataFrame) -> bytes:
 
 def render_chart(bars: pd.DataFrame, item, side: str, timeframe: str = 'D'):
     code = str(item['code'])
-    # Compute rolling averages on available history, but DISPLAY exactly
-    # the 21 completed bars used for V-bottom recognition.
-    series = bars[bars.code == code].sort_values('date').copy()
+    series = bars[bars.code == code].sort_values('date').tail(100).copy()
     if series.empty:
         st.warning('無法取得此股票的歷史 K 線。')
         return
@@ -438,7 +343,6 @@ def render_chart(bars: pd.DataFrame, item, side: str, timeframe: str = 'D'):
     series['ma10'] = series['close'].rolling(10).mean()
     series['ma20'] = series['close'].rolling(20).mean()
     series['ma52'] = series['close'].rolling(52).mean()
-    series = series.tail(21).copy()
     x = series.date.astype(str).to_list()
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=.055,
                         row_heights=[.74,.26])
@@ -480,27 +384,17 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame,
         st.info('這個日期與條件下，沒有符合定義的型態。可以延長訊號觀察天數或稍微放寬流動性門檻；不會以不符合的股票湊滿 25 名。')
         return
     shown = frame.rename(columns={
-        'rank':'排名','volume_rank':'成交量名次','code':'代號','name':'股票名稱','industry':'產業類別','category':'搜尋類別','pattern':'型態','stage':'階段',
+        'rank':'排名','code':'代號','name':'股票名稱','industry':'產業類別','category':'搜尋類別','pattern':'型態','stage':'階段',
         'matched_patterns':'符合型態','matched_categories':'符合搜尋項目',
         'matched_count':'符合型態數',
-        'score':'分數','signal_date':'訊號日期','pivot_date':'止跌日期',
-        'pivot_volume_ratio':'止跌日量／前5期均量',
-        'two_day_volume_ratio':'兩日均量／前5期均量',
-        'age':'距今天數(交易日)',
+        'score':'分數','signal_date':'訊號日期','age':'距今天數(交易日)',
         'close':'收盤價','change_pct':'漲跌幅 %',
         'volume_lots':'今日量(張)','avg_volume_lots':'20日均量(張)',
         'avg_turnover_100m':'20日均成交額(億)','volume_ratio':'量比'
     })
-    # Older Streamlit sessions may still hold cached rankings from before the
-    # extra pivot fields existed. Keep the display stable until a fresh scan.
-    for optional_col, default in (
-            ("止跌日期", ""), ("止跌日量／前5期均量", 0.0),
-            ("兩日均量／前5期均量", 0.0)):
-        if optional_col not in shown.columns:
-            shown[optional_col] = default
     # First five as readable, thumb-friendly rows, without horizontal swiping.
     # The original full 25-stock table, CSV, and chart remain available below.
-    st.caption('優先查看前 5 檔；完整 25 檔榜單可在下方展開。新量能條件需重新搜尋才會套用。')
+    st.caption('優先查看前 5 檔；完整 25 檔榜單可在下方展開')
     quick_rows = []
     for _, item in frame.head(5).iterrows():
         code = escape(str(item['code']))
@@ -508,35 +402,17 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame,
         pattern = escape(str(item.get('matched_patterns', item['pattern'])))
         stage = escape(str(item['stage']))
         signal_date = escape(str(item['signal_date']))
-        pivot_date = escape(str(item.get('pivot_date') or ''))
-        pivot_volume_ratio = float(item.get('pivot_volume_ratio') or 0)
-        two_day_volume_ratio = float(item.get('two_day_volume_ratio') or 0)
-        volume_info = (
-            f' · 止跌日量 {pivot_volume_ratio:.2f} 倍'
-            f' · 兩日均量 {two_day_volume_ratio:.2f} 倍'
-            if pivot_date and pivot_volume_ratio > 0 else ''
-        )
-        date_label = (
-            f'止跌 {pivot_date} → 反轉確認 {signal_date}{volume_info}'
-            if pivot_date and pivot_date != signal_date else
-            f'底部訊號 {signal_date}{volume_info}'
-        )
         industry_value = item.get('industry', '未分類')
         industry = escape(str(industry_value)) if pd.notna(industry_value) else '未分類'
         score = int(item['score'])
-        volume_rank = item.get('volume_rank')
-        volume_badge = (
-            f' · 成交量第 {int(volume_rank)} 名'
-            if pd.notna(volume_rank) else ''
-        )
         price = float(item['close'])
         quick_rows.append(
             '<div class="qs-stock"><div class="qs-stock-top">'
             f'<span class="qs-stock-name"><span class="qs-stock-code">{code}</span>{name}</span>'
             f'<span class="qs-stock-score">{score} 分</span>'
             '</div><div class="qs-stock-bottom">'
-            f'<span class="qs-stock-industry">產業：{industry}</span> · 收盤 {price:,.2f} 元{volume_badge}'
-            f'<div>符合型態：{pattern}</div><div>{date_label} · {stage}</div>'
+            f'<span class="qs-stock-industry">產業：{industry}</span> · 收盤 {price:,.2f} 元'
+            f'<div>符合型態：{pattern}</div><div>訊號日期：{signal_date} · {stage}</div>'
             '</div></div>'
         )
     st.markdown('<div class="qs-rows">' + ''.join(quick_rows) + '</div>',
@@ -550,8 +426,7 @@ def render_rankings(frame: pd.DataFrame, side: str, full_data: pd.DataFrame,
     with st.expander('更多欄位（成交量、成交金額、日期等）'):
         st.dataframe(shown[['排名','代號','股票名稱','產業類別',
             '搜尋類別','符合型態','符合搜尋項目','符合型態數',
-            '階段','分數','止跌日期','訊號日期',
-            '止跌日量／前5期均量','兩日均量／前5期均量','收盤價',
+            '階段','分數','訊號日期','收盤價',
             '漲跌幅 %','今日量(張)','20日均量(張)','20日均成交額(億)','量比']],
             hide_index=True,use_container_width=True,
             column_config={'漲跌幅 %':st.column_config.NumberColumn(
@@ -605,23 +480,6 @@ render_affiliate_promotion(compact=True)
 if "scan_error" in st.session_state:
     st.error("搜尋中斷：" + st.session_state.pop("scan_error"))
 
-# User-initiated historical acceptance. Never auto-fetch hundreds of market
-# days for normal visitors; heavy I/O stays inside the existing worker pool.
-with st.expander("🧪 歷史驗收｜11/10（二）訊號 → 11/13（五）", expanded=False):
-    st.caption("固定週二成交量前 150 大，核對 V 底及酒田買入訊號。"
-               " 分別統計每天收漲、三日內曾漲及週五收高。")
-    if st.button("執行官方歷史行情驗收", use_container_width=True,
-                 disabled="acceptance_future" in st.session_state):
-        st.session_state["acceptance_future"] = _search_pool()["executor"].submit(
-            run_20261110_acceptance)
-        st.rerun()
-    if "acceptance_error" in st.session_state:
-        st.error("驗收無法完成：" + st.session_state["acceptance_error"])
-    if "acceptance_future" in st.session_state:
-        show_acceptance_progress()
-    else:
-        render_acceptance_report()
-
 # Keep the editable search panel immediately below the header/refresh button.
 # When results exist, collapse it by default so the rankings remain visible
 # without a long scroll on iPhone home-screen mode.
@@ -631,19 +489,24 @@ search_panel = (st.expander('🔎 調整條件・重新選股', expanded=False)
                 if 'results' in st.session_state else st.container(border=True))
 with search_panel:
     st.subheader('設定篩選條件')
-    st.caption('成交量前 150 大 · 21 根 K 圖形辨識 · 可選最近一週低點')
+    st.caption('使用預設條件即可搜尋；需要時再調整。')
     frame_choice = st.selectbox(
         'K 線搜尋週期', ['日 K', '週 K'], index=0,
         help='預設日 K；週 K 由證交所盤後日 K 合成，僅採用已完成交易週。')
     timeframe = 'W' if frame_choice == '週 K' else 'D'
     if timeframe == 'W':
         st.caption('週 K 使用完整交易週；流動性仍依近 20 個交易日計算。首次搜尋可能需要下載較長歷史資料。')
-    st.caption('股票範圍：台灣上市普通股，依查詢日成交量排序前 150 檔。日 K／週 K 都使用 21 根 K 棒判斷。')
-    query_date = st.date_input('查詢日期', value=last_weekday(),
-        min_value=today_taiwan()-timedelta(days=1400),
-        max_value=today_taiwan(), format='YYYY/MM/DD')
-    min_vol = 0
-    min_money = 0.0
+    c_date, c_volume = st.columns(2)
+    with c_date:
+        query_date = st.date_input('查詢日期', value=last_weekday(),
+            min_value=today_taiwan()-timedelta(days=1400),
+            max_value=today_taiwan(), format='YYYY/MM/DD')
+    with c_volume:
+        min_vol = st.number_input('20 日均量下限（張）', min_value=0,
+            max_value=100000, value=1000, step=500)
+    min_money = st.number_input('20 日平均每日成交金額下限（億元）',
+        min_value=0.0, max_value=500.0, value=3.0, step=.5, format='%.1f',
+        help='預設 3 億元；可自行調整為 1 億、5 億等。此為股票成交金額，非公司營收。')
     c_low, c_high = st.columns(2)
     with c_low:
         price_low_text = st.text_input('最低股價（元）', value='',
@@ -666,47 +529,75 @@ with search_panel:
         price_error = '股價請輸入有效數字（例如 30、150.5），也可以留白。'
     if price_error:
         st.error(price_error)
-    # Retire the old MA5 gating option: the three V setups themselves
-    # are the ONLY technical selection switches in this streamlined edition.
-    require_above_ma5 = False
-    st.markdown('**21 K 底部反轉訊號**')
-    scan_period = st.radio(
-        '搜尋時間區間',
-        ['最近 2 根 K', '最近一週低點'],
-        index=0, horizontal=True,
-        help='最近一週：日 K 查看最近 5 個交易日內形成的 V 底低點；週 K 查看最新完成的一週。')
-    require_week_low = scan_period == '最近一週低點'
-    st.caption('只找真正的底部反彈：先到 21 K 低位，再有下一根已收盤紅 K 反彈確認；單根下影不直接入選。符合任一型態即可。')
-    pick_hammer = st.checkbox('槌頭線＋下一 K 反彈', value=True,
-        help='真正落在 21 根 K 的底部，槌頭隔一根已完成紅 K 收高至少 1%，守住低點，才列入。')
-    pick_lower = st.checkbox('長下影＋下一 K 反彈', value=True,
-        help='下影線在底部，下一根已完成紅 K 收復前根實體並守住低點；只出現長下影但仍連跌不合格。')
-    pick_3k = st.checkbox('三 K 棒 V 底反轉', value=True,
-        help='下跌至 21 K 低點後，第三根 K 必須紅 K 放大實體、守住低點且明顯收高。')
-    st.markdown('**B｜整理後轉強突破（獨立搜尋）**')
-    pick_breakout = st.checkbox(
-        '整理後紅 K 放量突破', value=True,
-        help='整理或小幅回檔後，以已完成紅 K 收盤突破前三根最高價、量能高於前五根均量至少 10%；不需符合 A 類 21 K 絕對低點。')
-    st.caption('B 類與 A 類分開辨識：中信金這類短線整理後突破可列入，但持續破低、沒有紅 K 確認的不列入。')
-    st.markdown('**酒田戰法（只搜尋買入訊號）**')
-    pick_sakata = st.checkbox(
-        '加入酒田底部反轉買入型態', value=False,
-        help='只增加底部三川晨星、低檔赤三兵。上升三法屬多頭延續而非低檔反轉，已排除。')
+    st.markdown('**基本篩選條件**')
+    require_above_ma5 = st.checkbox(
+        '最新收盤價站上 MA5（五期均線）',
+        value=False,
+        help='勾選後，只保留最新收盤價高於最近五根 K 棒收盤均價的股票。日 K 是五日線；週 K 是五週線。這是價格位置條件，不是黃金交叉。')
+    st.caption('日 K＝站上五日線；週 K＝站上五週線。可自行勾選，不影響其他型態設定。')
+    st.markdown('**K 棒訊號**')
+    st.caption('優先辨識明顯止跌與確認突破；不符合就不列入。各型態獨立搜尋。')
+    select_rejection = st.checkbox(
+        '低檔長下影／回測支撐止跌（圈選範例）',
+        value=True,
+        help='下跌或回檔後，在近期低點或均線支撐附近出現明顯長下影、收盤收回 K 棒上半區。訊號標在當根 K 棒，屬提前觀察，無須等隔日突破。')
+    select_morning = st.checkbox(
+        '晨星反轉 · 三根 K 確認', value=True,
+        help='長黑 K → 小實體止跌 → 紅 K 收復前根長黑實體中點。')
+    select_bull_doji = st.checkbox(
+        '多頭十字星 · 低檔觀察', value=True,
+        help='下跌低檔出現小實體十字 K，屬提前觀察，不代表已起漲。')
+    extra_pattern_options = [
+        '低檔垂頭線', '低檔倒垂頭線',
+        '多頭吞噬', '多頭孕育線', '穿刺線',
+        '錘頭隔日突破', '低點止跌突破',
+        '多次探底突破', '上升通道突破',
+        '放量買盤轉強',
+        '高檔上吊線', '高檔流星線',
+        '空頭吞噬', '空頭孕育線', '烏雲蓋頂',
+        '夜星反轉', '向上跳空', '向下跳空',
+        'K 棒反轉', 'W 底／M 頭', '均線突破／跌破',
+        'MACD 交叉', 'KD 交叉', 'RSI 回升／轉弱',
+    ]
+    extra_signals = st.multiselect(
+        '加選其他型態（選填）',
+        options=extra_pattern_options,
+        default=[],
+        format_func=lambda x: {
+            'K 棒反轉': '其他 K 棒反轉（綜合）',
+            '均線突破／跌破': '股價穿越均線 MA5／10／20／52',
+            '低檔垂頭線': '垂頭線（低檔長下影）',
+            '低檔倒垂頭線': '倒垂頭線（低檔長上影）',
+            '高檔上吊線': '上吊線（高檔長下影）',
+            '高檔流星線': '流星線（高檔長上影）',
+            '向上跳空': '向上跳空缺口',
+            '向下跳空': '向下跳空缺口',
+            '多次探底突破': '多次探底 → 頸線突破（三重底）',
+            '上升通道突破': '上升通道 → 突破上緣',
+            '放量買盤轉強': '放量紅 K 突破（非買超統計）',
+        }.get(x, x),
+        help='各型態使用獨立的 K 線判斷規則；多次探底與上升通道須收盤確認突破。')
+    require_all_signals = st.checkbox(
+        '必須符合全部勾選訊號', value=False,
+        help='關閉：任一勾選訊號成立即可列入；開啟：在觀察天數內需要符合所有勾選的訊號，可能沒有結果。')
     targets = []
-    if pick_hammer:
-        targets.append('V底槌頭')
-    if pick_lower:
-        targets.append('V底長下影')
-    if pick_3k:
-        targets.append('V底三K反轉')
-    if pick_breakout:
-        targets.append('整理轉強突破')
-    if pick_sakata:
-        targets.extend(['酒田三川晨星', '酒田紅三兵'])
-    require_all_signals = False
-    signal_days = (5 if timeframe == 'D' else 1) if require_week_low else 2
-    ma_windows = [5,10,20,52]
-    history_days = 165
+    if select_rejection:
+        targets.append('低檔長下影止跌')
+    if select_morning:
+        targets.append('晨星反轉')
+    if select_bull_doji:
+        targets.append('多頭十字星')
+    targets.extend(extra_signals)
+    ma_windows = [5, 10, 20, 52]
+    # Avoid nesting expanders: Streamlit does not support an expander inside another.
+    advanced_panel = (st.container() if 'results' in st.session_state
+                      else st.expander('更多設定：訊號天數'))
+    with advanced_panel:
+        if 'results' in st.session_state:
+            st.caption('進階設定 · 訊號天數')
+        signal_days = st.select_slider('最近幾個交易日出現訊號',
+            options=[1,2,3,4,5],value=3)
+        history_days = st.slider('歷史回溯天數',120,250,165,5)
     valid_targets = bool(targets) and price_error is None
     if not targets:
         st.warning('請至少勾選一種搜尋型態。')
@@ -724,8 +615,7 @@ if run:
         "hammer_only_bottom": False,
         "require_above_ma5": require_above_ma5,
         "require_all_signals": require_all_signals,
-        "signal_days": signal_days,
-        "require_week_low": require_week_low, "history_days": history_days,
+        "signal_days": signal_days, "history_days": history_days,
     }
     st.session_state["scan_future"] = _search_pool()["executor"].submit(
         run_stock_scan, criteria)
@@ -749,18 +639,12 @@ if 'results' in st.session_state:
         f'上市名冊 {r["diag"]["listed"]:,} 檔</div>'
         '</div>',
         unsafe_allow_html=True)
-    v_only = set(r['criteria'].get('targets', [])).issubset(
-        {'V底槌頭', 'V底長下影', 'V底三K反轉',
-         '酒田三川晨星', '酒田紅三兵',
-         '整理轉強突破'})
     stats = [
-        ('台灣上市可分析', r['diag']['covered'], '檔'),
-        ('成交量前 150 大', r['diag'].get('volume_universe') or 0, '檔'),
-        ('V 型底部候選' if v_only else '底部候選',
-         len(r['bottom']), '/ 25 檔'),
+        ('可分析股票', r['diag']['covered'], '檔'),
+        ('符合流動性', r['diag']['liquid'], '檔'),
+        ('底部候選', len(r['bottom']), '/ 25 檔'),
+        ('頂部候選', len(r['top']), '/ 25 檔'),
     ]
-    if not v_only:
-        stats.append(('頂部候選', len(r['top']), '/ 25 檔'))
     stat_html = ''.join(
         '<div class="qs-stat">'
         f'<div class="qs-stat-label">{escape(label)}</div>'
@@ -772,27 +656,23 @@ if 'results' in st.session_state:
                 unsafe_allow_html=True)
     mode_label = ('全部勾選型態均符合' if r['criteria'].get('require_all_signals')
                   else '符合任一勾選型態即可')
-    st.caption(f'{mode_label} · 盤後{frame_label}。符合哪幾種 V 訊號會顯示在股票卡片；分數不是勝率。')
-    if v_only:
-        tabs=st.tabs(['V 型候選 Top 25','判斷規則'])
-    else:
-        tabs=st.tabs(['底部候選 Top 25','頂部候選 Top 25','判斷規則'])
+    st.caption(f'{mode_label} · 盤後{frame_label}。圈選型態會標示訊號當根日期；評分不是勝率。')
+    tabs=st.tabs(['底部候選 Top 25','頂部候選 Top 25','判斷規則'])
     with tabs[0]:
         render_rankings(r['bottom'],'bottom',r['data'],effective_date,
                         r['criteria'].get('timeframe','D'))
-    if not v_only:
-        with tabs[1]:
-            render_rankings(r['top'],'top',r['data'],effective_date,
-                            r['criteria'].get('timeframe','D'))
-    with tabs[1 if v_only else 2]:
+    with tabs[1]:
+        render_rankings(r['top'],'top',r['data'],effective_date,
+                        r['criteria'].get('timeframe','D'))
+    with tabs[2]:
         st.markdown('''
 **判斷型態**
 
-- **搜尋雙軌：** A「V 型底部反彈」仍需 21 K 低檔與下一根反彈 K 確認；B「整理後轉強突破」獨立選股，短線整理後放量紅 K 收盤突破前三根高點，不需符合 A 類底部低點限制。兩者符合任一就列入，股票卡會明確標示 A/B。
-- **組合方式：** 三類訊號各自獨立，符合任一種即可。前 150 大以查詢日的成交股數排名，週 K 依最新完整週成交股數排名。最低／最高股價可自行設定。
-- **搜尋面板：** 取消舊的 20 日均量與每日成交金額下限，改用前 150 大成交量；保留股價區間。
-- **頂部訊號：** 此版專注 V 型底部候選，暫不顯示頂部候選空榜單。
-- **評分：** 型態基本分加上量能、流動性、均線條件等，僅用於候選排序，不代表預測勝率。
+- **底部預設：** 低檔長下影／回測支撐止跌（探低後收回的當根 K 棒，提前觀察）、晨星三 K 確認、多頭十字星。圈選範例屬早期止跌訊號，不要求隔日確認突破。
+- **組合方式：** 預設符合任一勾選型態就列入；勾選「必須符合所有」時，同一股票需在選定觀察天數內符合全部勾選訊號，可在不同交易日成立。成交量、成交金額、股價及可選 MA5 屬於必須符合的基本過濾條件。
+- **底部其他可選：** 多次探底後突破頸線（三重底）、上升通道上緣突破、錘頭隔日突破、低點止跌後突破、其他 K 棒反轉、W 底／M 頭、均線及 MACD／KD／RSI。未勾選時不參與搜尋。
+- **頂部：** 流星線（長上影）、空頭吞噬、夜星三 K、突破前高後跌回、局部高點二 K 確認、M 頭雛形／跌破頸線、20 日區間向下跌破。
+- **評分：** 型態基本分＋流動性＋訊號日量比＋均線位置／方向－訊號距今交易日的時間折減，最高 100 分。分數不能解讀為上漲或下跌的機率。
 - **榜單：** 每檔最多入選一次，但會列出全部匹配的型態；分數以最高分訊號為準。只有符合條件才列入，可能不足 25 檔。
 
 **務必留意**
@@ -807,3 +687,4 @@ if 'results' in st.session_state:
     st.caption('本工具僅供研究與選股輔助，不構成投資建議。週 K 使用完整交易週，不包含本週尚未結束的 K 棒。')
     # The clearly disclosed Shopee link is already available above the form.
     # Avoid repeated ad cards after the rankings.
+
