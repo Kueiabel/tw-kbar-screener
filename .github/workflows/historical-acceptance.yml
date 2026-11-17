@@ -51,7 +51,14 @@ jobs:
           git add reports/ci/historical_audit* reports/acceptance_20261110/ || true
           if ! git diff --cached --quiet; then
             git commit -m "Save TWSE audit result and diagnostics [skip ci]"
-            git push || echo "Unable to push audit diagnostics"
+            # CI and historical runners can commit simultaneously. Rebase
+            # onto the current branch before pushing so reports aren't lost.
+            for attempt in 1 2 3; do
+              git fetch origin "主要的"
+              git rebase "origin/主要的" || { git rebase --abort; break; }
+              git push && break
+              sleep 2
+            done
           fi
       - name: Mark run failure if audit failed
         run: test "$(cat reports/ci/historical_audit_exit.txt)" = "0"
