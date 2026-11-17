@@ -56,7 +56,7 @@ class V21Tests(unittest.TestCase):
     def test_hammer_in_last_two_bars(self):
         b, _, _, _ = run(sample(),selected=("V底槌頭",))
         self.assertEqual(len(b),1)
-        self.assertIn("V 底槌頭線",b.iloc[0]["pattern"])
+        self.assertIn("V 底槌頭→隔日確認",b.iloc[0]["pattern"])
         self.assertEqual(b.iloc[0]["volume_rank"],1)
 
     def test_lower_wick_in_last_two_bars(self):
@@ -72,8 +72,9 @@ class V21Tests(unittest.TestCase):
         b, _, _, _ = run(sample(shape="none"))
         self.assertTrue(b.empty)
 
-    def test_signal_three_bars_ago_is_excluded(self):
-        b, _, _, _ = run(sample(pivot_offset=-3),selected=("V底槌頭",))
+    def test_signal_more_than_two_bars_ago_is_excluded(self):
+        # Pivot 4 bars back, confirmation 3 back => outside 2-bar window.
+        b, _, _, _ = run(sample(pivot_offset=-4),selected=("V底槌頭",))
         self.assertTrue(b.empty)
 
     def test_top_volume_150_is_actual_rank(self):
@@ -92,14 +93,14 @@ class V21Tests(unittest.TestCase):
         self.assertEqual(d["volume_universe"],150)
 
     def test_21_k_bars_eligible(self):
-        # A current-day signal can use exactly 21 bars. A yesterday
-        # signal needs 22 bars: 21 available AS OF yesterday plus today.
+        # A completed confirmation at today's bar requires precisely
+        # 21 bars, and 20 cannot form the required 21-K context.
         df = sample().tail(21).copy()
         b, _, _, _ = run(df,selected=("V底槌頭",))
-        self.assertTrue(b.empty)  # pivot occurred one bar ago: needs 22
-        enough = sample().tail(22).copy()
-        b2, _, _, _ = run(enough,selected=("V底槌頭",))
-        self.assertEqual(len(b2),1)
+        self.assertEqual(len(b),1)
+        insufficient = sample().tail(20).copy()
+        b2, _, _, _ = run(insufficient,selected=("V底槌頭",))
+        self.assertTrue(b2.empty)
 
     def test_week_window_detects_earlier_v_bottom(self):
         df = sample(pivot_offset=-4)
