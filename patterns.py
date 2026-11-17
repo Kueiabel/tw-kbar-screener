@@ -266,7 +266,8 @@ V21_CATEGORIES = {"V底槌頭", "V底長下影", "V底三K反轉"}
 # Only Sakata BOTTOM-REVERSAL buy patterns. Rising Three Methods is an
 # upward-trend continuation pattern, not a newly forming V-shaped bottom.
 SAKATA_BUY_CATEGORIES = {"酒田三川晨星", "酒田紅三兵"}
-ACTIVE21_CATEGORIES = V21_CATEGORIES | SAKATA_BUY_CATEGORIES
+BREAKOUT21_CATEGORIES = {"整理轉強突破"}
+ACTIVE21_CATEGORIES = V21_CATEGORIES | SAKATA_BUY_CATEGORIES | BREAKOUT21_CATEGORIES
 
 
 def _v21_patterns_at(df: pd.DataFrame, enabled_categories):
@@ -408,6 +409,51 @@ def _v21_patterns_at(df: pd.DataFrame, enabled_categories):
                 f"{w.date.iloc[t]} 三根紅 K 收盤階梯上移、"
                 "第三根突破第二根最高價。",
                 "三紅 K 反彈確認","酒田紅三兵"))
+    # B track: pullback/consolidation followed by an actual bullish close
+    # above the previous three bars' highs, on expanding trading volume.
+    # It does NOT claim to be a fresh V bottom. Three bullish candles are
+    # an additional descriptive confirmation, not a necessary condition.
+    if "整理轉強突破" in allowed:
+        t = 20
+        high3 = float(np.max(hi[t-3:t]))
+        avg5 = float(np.mean(vol[t-5:t]))
+        last_body = cl[t]-op[t]
+        last_range = max(float(hi[t]-lo[t]),1e-8)
+        last_close_position = (cl[t]-lo[t])/last_range
+        recent_pullback = (
+            cl[t-4] < cl[t-5] or cl[t-3] < cl[t-4]
+            or cl[t-2] < cl[t-3]
+        )
+        preceding_consolidation = (
+            (float(np.max(cl[t-5:t])-np.min(cl[t-5:t])) /
+             max(float(np.mean(cl[t-5:t])),1e-8)) <= .13
+        )
+        price_breakout = (cl[t] > high3
+                          and cl[t] > cl[t-1]*1.012
+                          and last_body/last_range >= .38
+                          and last_close_position >= .68)
+        volume_breakout = avg5 > 0 and vol[t] >= avg5*1.10
+        # Do not flag a breakout while fresh lows are still being made.
+        intact_short_support = (
+            lo[t] >= float(np.min(lo[t-5:t]))*.995
+            and cl[t] > float(np.mean(cl[t-3:t]))
+        )
+        red_three = (all(cl[k] > op[k] for k in (18,19,20))
+                     and cl[18] < cl[19] < cl[20])
+        if (recent_pullback and preceding_consolidation
+                and price_breakout and volume_breakout
+                and intact_short_support):
+            note = (
+                f"{w.date.iloc[-1]} 整理後紅 K 收 {cl[t]:.2f}，"
+                f"突破前三根最高價 {high3:.2f}；"
+                f"量能為前五根均量 {vol[t]/avg5:.2f} 倍。"
+                + ("連續三根紅 K 漸進收高。" if red_three else
+                   "確認向上突破整理區。")
+                + "這是 B 類突破候選，不屬於 A 類 V 底。"
+            )
+            results.append((
+                "bottom","B｜整理後轉強突破",69 if red_three else 65,
+                note,"放量突破確認","整理轉強突破"))
     return results
 
 
@@ -1024,13 +1070,20 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
                 # configured lookback. A subsequent bar cannot break below
                 # the pivot or reverse into renewed selling.
                 if category in ACTIVE21_CATEGORIES and age > 0:
-                    low_i = (i-2 if category == "酒田紅三兵"
-                             else i-1)
-                    if (float(grp.low.iloc[i+1:].min())
-                            < float(grp.low.iloc[low_i])*.998
-                            or float(grp.close.iloc[-1])
-                            < float(grp.close.iloc[i])*.985):
-                        continue
+                    if category in BREAKOUT21_CATEGORIES:
+                        # Once a breakout fails its own close/support,
+                        # don't keep showing it as a fresh candidate.
+                        if (float(grp.close.iloc[-1])
+                                < float(grp.close.iloc[i])*.985):
+                            continue
+                    else:
+                        low_i = (i-2 if category == "酒田紅三兵"
+                                 else i-1)
+                        if (float(grp.low.iloc[i+1:].min())
+                                < float(grp.low.iloc[low_i])*.998
+                                or float(grp.close.iloc[-1])
+                                < float(grp.close.iloc[i])*.985):
+                            continue
                 # Other breakout signals keep their prior timing.
                 if name in ("錘頭隔日突破・第三日觀察",
                             "低點止跌後突破") and age != 0:
@@ -1051,7 +1104,8 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
                     score = min(100, score + 12)
                 prev_close = float(grp.close.iloc[-2]) if len(grp) > 1 else float(grp.close.iloc[-1])
                 pct = (grp.close.iloc[-1] / prev_close-1)*100 if prev_close else 0
-                low_day_i = (i-2 if category == "酒田紅三兵" else
+                low_day_i = (-1 if category in BREAKOUT21_CATEGORIES else
+                             i-2 if category == "酒田紅三兵" else
                              i-1 if category in ACTIVE21_CATEGORIES else
                              i-2 if category in v_targets else -1)
                 low_day_ratio = (
