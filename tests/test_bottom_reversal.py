@@ -223,5 +223,83 @@ class SakataBuyOnlyTests(unittest.TestCase):
         self.assertFalse(any(str(x[5]).startswith("酒田") for x in got))
 
 
+
+class ConsolidationBreakoutTests(unittest.TestCase):
+    """B category: a breakout after a short pullback, not an A-type V bottom."""
+
+    @staticmethod
+    def citic_like():
+        # Historical OHLCV for 2891 from the previously archived TWSE
+        # 2026-11-13 official acceptance audit (last six trading bars).
+        # Earlier synthetic bars only provide sufficient 21-K context.
+        dates = pd.bdate_range(end="2026-11-13", periods=26)
+        rows = []
+        for d in dates:
+            rows.append(dict(date=d.strftime("%Y-%m-%d"),
+                             code="2891", name="中信金",
+                             open=78., high=79., low=77., close=77.5,
+                             shares=40_000_000,turnover=3_000_000_000))
+        history = [
+            ("2026-11-06",69.2,74.4,67.5,73.4,58_648_967),
+            ("2026-11-09",73.4,76.2,72.8,75.9,63_031_338),
+            ("2026-11-10",74.7,75.8,73.1,73.7,37_205_627),
+            ("2026-11-11",73.3,74.7,72.6,74.7,40_496_594),
+            ("2026-11-12",74.6,75.7,73.9,75.4,35_807_558),
+            ("2026-11-13",75.8,79.8,75.3,78.7,64_375_806),
+        ]
+        for row in rows:
+            for date,op,hi,lo,cl,v in history:
+                if row["date"] == date:
+                    row.update(open=op,high=hi,low=lo,close=cl,
+                               shares=v,turnover=v*cl)
+                    break
+        return pd.DataFrame(rows)
+
+    def test_citic_2891_breakout_is_B_not_A(self):
+        df = self.citic_like()
+        bottom,_,_,_ = screen(
+            df,{"2891":"中信金"},"2026-11-13",
+            min_vol_lots=0,min_turnover_100m=0.,min_history_bars=21,
+            top_volume_n=150,enabled_categories=(
+                "V底槌頭","V底長下影","V底三K反轉","整理轉強突破"),
+            signal_days=2)
+        self.assertEqual(len(bottom),1)
+        self.assertEqual(bottom.iloc[0]["matched_categories"],"整理轉強突破")
+        self.assertEqual(bottom.iloc[0]["signal_date"],"2026-11-13")
+
+    def test_B_does_not_require_A_bottom(self):
+        from patterns import _v21_patterns_at
+        signals = _v21_patterns_at(
+            self.citic_like(),["V底槌頭","V底長下影","V底三K反轉",
+                              "整理轉強突破"])
+        self.assertIn("整理轉強突破",[sig[5] for sig in signals])
+        self.assertFalse(any(sig[5].startswith("V底") for sig in signals))
+
+    def test_breakout_must_have_extra_volume(self):
+        from patterns import _v21_patterns_at
+        df=self.citic_like()
+        df.loc[df.index[-1],"shares"]=15_000_000
+        self.assertNotIn(
+            "整理轉強突破",
+            [s[5] for s in _v21_patterns_at(df,["整理轉強突破"])])
+
+    def test_breakout_must_close_above_prior_highs(self):
+        from patterns import _v21_patterns_at
+        df=self.citic_like()
+        df.loc[df.index[-1],["open","high","low","close"]] = (
+            75.8,76.5,75.3,76.2)
+        self.assertFalse(_v21_patterns_at(df,["整理轉強突破"]))
+
+    def test_consecutive_lower_closes_never_count_as_breakout(self):
+        from patterns import _v21_patterns_at
+        df=self.citic_like()
+        df.loc[df.index[-3],["open","high","low","close"]] = (
+            75.,75.4,72.,72.5)
+        df.loc[df.index[-2],["open","high","low","close"]] = (
+            72.5,73.,70.,71.)
+        df.loc[df.index[-1],["open","high","low","close"]] = (
+            71.,71.5,68.,69.)
+        self.assertFalse(_v21_patterns_at(df,["整理轉強突破"]))
+
 if __name__ == "__main__":
     unittest.main()
