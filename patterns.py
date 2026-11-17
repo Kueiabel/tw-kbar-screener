@@ -1139,6 +1139,11 @@ def screen(data: pd.DataFrame, companies: dict[str, str],
                     two_day_volume_ratio=round(combined_volume_ratio, 2),
                 )
                 signal_payload = signal.as_dict()
+                signal_payload["search_track"] = (
+                    "B｜整理後轉強突破" if category in BREAKOUT21_CATEGORIES
+                    else "A｜V 型底部反彈" if category in (
+                        V21_CATEGORIES | SAKATA_BUY_CATEGORIES)
+                    else "其他")
                 if top_volume_n is not None:
                     signal_payload["volume_rank"] = volume_rank[code]
                 result[side].append(signal_payload)
