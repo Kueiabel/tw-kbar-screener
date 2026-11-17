@@ -68,7 +68,55 @@ def main():
             out=OUTPUT/f"{'v_only' if name.startswith('原') else 'v_sakata'}_{mode}.csv"
             df.to_csv(out, index=False, encoding="utf-8-sig")
     save_json("summary.json", summary)
+
+    # Visual false-positive audit from the owner's 2026-11-13 screenshots.
+    # Do not use future candles; verify from official as-of Nov 13 prices.
+    from patterns import screen
+    audit_day = "2026-11-13"
+    cats = ("V底槌頭", "V底長下影", "V底三K反轉",
+            "酒田三川晨星", "酒田紅三兵")
+    focus = ("2376", "2891", "2886", "2412", "2409")
+    audit = {"as_of":audit_day, "focus_codes":list(focus), "modes":{}}
+    todays = bars[bars.date == audit_day].sort_values(
+        "shares",ascending=False).reset_index(drop=True)
+    for code in focus:
+        stock = bars[(bars.code == code) & (bars.date <= audit_day)].tail(21)
+        audit[code] = {
+            "volume_rank":(
+                int(todays.index[todays.code == code][0]) + 1
+                if (todays.code == code).any() else None),
+            "last_6_K":stock.tail(6)[
+                ["date","open","high","low","close","shares"]
+            ].to_dict(orient="records"),
+        }
+    for label,days,week_low in (
+        ("最近兩根",2,False),
+        ("最近五根且週低",5,True),
+    ):
+        selected, _, diag, _ = screen(
+            bars, companies, audit_day,
+            enabled_categories=cats,
+            min_vol_lots=0, min_turnover_100m=0,
+            min_history_bars=21, min_price=10,
+            signal_days=days, require_week_low=week_low,
+            top_n=150, top_volume_n=150,
+        )
+        audit["modes"][label] = {
+            "total":int(len(selected)),
+            "focus_hits":[
+                {
+                    "code":str(row.code),
+                    "name":str(row.name),
+                    "pattern":str(row.pattern),
+                    "signal_date":str(row.signal_date),
+                } for row in selected.itertuples(index=False)
+                if str(row.code) in focus
+            ],
+        }
+    save_json("audit_20261113.json", audit)
     print(json.dumps(summary,ensure_ascii=False,indent=2),flush=True)
+    print("Visual false-positive case check:",json.dumps(
+        audit["modes"],ensure_ascii=False),flush=True)
 
 
 if __name__ == "__main__":
