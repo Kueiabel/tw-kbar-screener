@@ -743,7 +743,8 @@ if 'results' in st.session_state:
         '</div>',
         unsafe_allow_html=True)
     v_only = set(r['criteria'].get('targets', [])).issubset(
-        {'V型反轉', 'V底K棒', 'V底放量'})
+        {'V底槌頭', 'V底長下影', 'V底三K反轉',
+         '酒田三川晨星', '酒田紅三兵'})
     stats = [
         ('台灣上市可分析', r['diag']['covered'], '檔'),
         ('成交量前 150 大', r['diag'].get('volume_universe') or 0, '檔'),
